@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags:
+      - "v*"
+
+permissions:
+  checks: write
+  contents: read
+  pull-requests: read
+
+jobs:
+  build:
+    uses: AdaskoTheBeAsT/github-actions/.github/workflows/dotnet-build-sonarqube-nuget.yml@v1
+    with:
+      dotnet_versions: ${{ vars.DOTNET_VERSIONS }}
+      runs_on: ${{ vars.RUNS_ON }}
+      solution_name: ${{ vars.SOLUTION_NAME }}
+      sonar_organization: ${{ vars.SONAR_ORGANIZATION }}
+      sonar_project_key: ${{ vars.SONAR_PROJECT_KEY }}
+      use_global_json: ${{ vars.USE_GLOBAL_JSON }}
+    secrets:
+      sonar_token: ${{ secrets.SONAR_TOKEN }}
+      nuget_api_key: ${{ secrets.NUGET_API_KEY }}

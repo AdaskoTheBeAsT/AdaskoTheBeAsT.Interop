@@ -1,0 +1,164 @@
+{
+  "$schema": "http://json.schemastore.org/sarif-1.0.0",
+  "version": "1.0.0",
+  "runs": [
+    {
+      "tool": {
+        "name": "Kompilator Microsoft (R) Visual C#",
+        "version": "5.0.0.0",
+        "fileVersion": "5.0.0-2.26119.110 (80d3e14f)",
+        "semanticVersion": "5.0.0",
+        "language": "pl-PL"
+      },
+      "results": [
+        {
+          "ruleId": "MA0076",
+          "level": "note",
+          "message": "Do not use implicit culture-sensitive ToString in interpolated strings",
+          "locations": [
+            {
+              "resultFile": {
+                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorkerPool.cs",
+                "region": {
+                  "startLine": 105,
+                  "startColumn": 30,
+                  "endLine": 105,
+                  "endColumn": 47
+                }
+              }
+            }
+          ],
+          "properties": {
+            "warningLevel": 1
+          }
+        },
+        {
+          "ruleId": "RCS1221",
+          "level": "note",
+          "message": "Use pattern matching instead of combination of 'as' operator and null check",
+          "locations": [
+            {
+              "resultFile": {
+                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorker.cs",
+                "region": {
+                  "startLine": 163,
+                  "startColumn": 9,
+                  "endLine": 163,
+                  "endColumn": 78
+                }
+              }
+            }
+          ],
+          "properties": {
+            "warningLevel": 1
+          }
+        },
+        {
+          "ruleId": "VSTHRD002",
+          "level": "error",
+          "message": "Synchronously waiting on tasks or awaiters may cause deadlocks. Use await or JoinableTaskFactory.Run instead.",
+          "suppressionStates": [
+            "suppressedInSource"
+          ],
+          "locations": [
+            {
+              "resultFile": {
+                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorker.cs",
+                "region": {
+                  "startLine": 157,
+                  "startColumn": 34,
+                  "endLine": 157,
+                  "endColumn": 43
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "RCS1146",
+          "level": "note",
+          "message": "Use conditional access",
+          "locations": [
+            {
+              "resultFile": {
+                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorker.cs",
+                "region": {
+                  "startLine": 337,
+                  "startColumn": 13,
+                  "endLine": 340,
+                  "endColumn": 14
+                }
+              }
+            }
+          ],
+          "properties": {
+            "warningLevel": 1
+          }
+        },
+        {
+          "ruleId": "VSTHRD002",
+          "level": "error",
+          "message": "Synchronously waiting on tasks or awaiters may cause deadlocks. Use await or JoinableTaskFactory.Run instead.",
+          "suppressionStates": [
+            "suppressedInSource"
+          ],
+          "locations": [
+            {
+              "resultFile": {
+                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorker.cs",
+                "region": {
+                  "startLine": 286,
+                  "startColumn": 14,
+                  "endLine": 286,
+                  "endColumn": 23
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "rules": {
+        "MA0076": {
+          "id": "MA0076",
+          "shortDescription": "Do not use implicit culture-sensitive ToString in interpolated strings",
+          "defaultLevel": "note",
+          "helpUri": "https://github.com/meziantou/Meziantou.Analyzer/blob/main/docs/Rules/MA0076.md",
+          "properties": {
+            "category": "Design",
+            "isEnabledByDefault": true
+          }
+        },
+        "RCS1146": {
+          "id": "RCS1146",
+          "shortDescription": "Use conditional access",
+          "defaultLevel": "note",
+          "helpUri": "https://josefpihrt.github.io/docs/roslynator/analyzers/RCS1146",
+          "properties": {
+            "category": "Roslynator",
+            "isEnabledByDefault": true
+          }
+        },
+        "RCS1221": {
+          "id": "RCS1221",
+          "shortDescription": "Use pattern matching instead of combination of 'as' operator and null check",
+          "defaultLevel": "note",
+          "helpUri": "https://josefpihrt.github.io/docs/roslynator/analyzers/RCS1221",
+          "properties": {
+            "category": "Roslynator",
+            "isEnabledByDefault": true
+          }
+        },
+        "VSTHRD002": {
+          "id": "VSTHRD002",
+          "shortDescription": "Avoid problematic synchronous waits",
+          "defaultLevel": "warning",
+          "helpUri": "https://microsoft.github.io/vs-threading/analyzers/VSTHRD002.html",
+          "properties": {
+            "category": "Usage",
+            "isEnabledByDefault": true
+          }
+        }
+      }
+    }
+  ]
+}

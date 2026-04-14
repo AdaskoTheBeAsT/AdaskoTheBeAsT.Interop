@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace AdaskoTheBeAsT.Interop.Execution;
 
 public sealed class ExecutionWorkerPool<TSession> : IDisposable
@@ -78,11 +80,8 @@ public sealed class ExecutionWorkerPool<TSession> : IDisposable
 
         for (var workerIndex = 0; workerIndex < workers.Length; workerIndex++)
         {
-            var sessionFactory = factoryProvider(workerIndex);
-            if (sessionFactory is null)
-            {
-                throw new InvalidOperationException("The session factory factory returned null.");
-            }
+            var sessionFactory = factoryProvider(workerIndex)
+                ?? throw new InvalidOperationException("The session factory factory returned null.");
 
             workers[workerIndex] = new ExecutionWorker<TSession>(
                 sessionFactory,
@@ -102,7 +101,7 @@ public sealed class ExecutionWorkerPool<TSession> : IDisposable
             return null;
         }
 
-        return $"{poolName} #{workerIndex + 1}";
+        return string.Format(CultureInfo.InvariantCulture, "{0} #{1}", poolName, workerIndex + 1);
     }
 
     private static void TryIgnore(Action action)
@@ -131,7 +130,7 @@ public sealed class ExecutionWorkerPool<TSession> : IDisposable
     {
         if (Volatile.Read(ref _disposeState) != 0)
         {
-            throw new ObjectDisposedException(nameof(ExecutionWorkerPool<TSession>));
+            throw new ObjectDisposedException(nameof(ExecutionWorkerPool<>));
         }
     }
 

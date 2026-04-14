@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using AwesomeAssertions;
 using Xunit;
 
 namespace AdaskoTheBeAsT.Interop.Execution.Test;
@@ -6,70 +7,109 @@ namespace AdaskoTheBeAsT.Interop.Execution.Test;
 public sealed class ExecutionWorkerPoolTest
 {
     [Fact]
-    public async Task ExecuteAsync_ShouldDistributeWorkAcrossMultipleDedicatedThreads()
+    public async Task ExecuteAsync_ShouldExecuteActionDelegateAsync()
+    {
+        var tracker = new PoolSessionTracker();
+        var executedWorkerIndices = new ConcurrentBag<int>();
+
+        using var workerPool = CreateWorkerPool(1, tracker);
+        await workerPool.ExecuteAsync(
+            (session, _) => executedWorkerIndices.Add(session.WorkerIndex),
+            cancellationToken: CancellationToken.None);
+
+        executedWorkerIndices.Should().ContainSingle();
+        executedWorkerIndices.Single().Should().Be(0);
+        tracker.GetCreateCount(0).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ShouldDistributeWorkAcrossMultipleDedicatedThreadsAsync()
     {
         var tracker = new PoolSessionTracker();
 
-        using (var workerPool = CreateWorkerPool(3, tracker))
-        {
-            var results = await Task.WhenAll(
-                Enumerable.Range(0, 9)
-                    .Select(
-                        _ => workerPool.ExecuteAsync(
-                            (session, cancellationToken) =>
-                                (session.WorkerIndex, session.SessionSequence, Thread.CurrentThread.ManagedThreadId, session.OwnerThreadId),
-                            cancellationToken: CancellationToken.None)));
+        using var workerPool = CreateWorkerPool(3, tracker);
+        var results = await Task.WhenAll(
+            Enumerable.Range(0, 9)
+                .Select(
+                    _ => workerPool.ExecuteAsync(
+                        static (session, _) =>
+                            (session.WorkerIndex, session.SessionSequence, ManagedThreadId: Environment.CurrentManagedThreadId, session.OwnerThreadId),
+                        cancellationToken: CancellationToken.None)));
 
-            Assert.Equal([0, 1, 2], results.Select(result => result.WorkerIndex).Distinct().OrderBy(index => index));
-            Assert.Equal(3, results.Select(result => result.ManagedThreadId).Distinct().Count());
-            Assert.All(results, result => Assert.Equal(result.OwnerThreadId, result.ManagedThreadId));
-            Assert.Equal(1, tracker.GetCreateCount(0));
-            Assert.Equal(1, tracker.GetCreateCount(1));
-            Assert.Equal(1, tracker.GetCreateCount(2));
+        var workerIndices = results.Select(static result => result.WorkerIndex).Distinct().ToArray();
+        Array.Sort(workerIndices);
+
+        workerIndices.Should().Equal(0, 1, 2);
+        results.Select(static result => result.ManagedThreadId).Distinct().Should().HaveCount(3);
+        results.Should().OnlyContain(static result => result.OwnerThreadId == result.ManagedThreadId);
+        tracker.GetCreateCount(0).Should().Be(1);
+        tracker.GetCreateCount(1).Should().Be(1);
+        tracker.GetCreateCount(2).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ShouldRecycleOnlyTheFailedWorkerSessionAsync()
+    {
+        var tracker = new PoolSessionTracker();
+
+        await ExecuteScenarioAsync();
+        tracker.GetCreateCount(0).Should().Be(2);
+        tracker.GetCreateCount(1).Should().Be(1);
+        tracker.GetDisposeCount(0).Should().Be(2);
+        tracker.GetDisposeCount(1).Should().Be(1);
+
+        async Task ExecuteScenarioAsync()
+        {
+            using var workerPool = CreateWorkerPool(2, tracker);
+            var firstWorker = await workerPool.ExecuteAsync(
+                static (session, _) => (session.WorkerIndex, session.SessionSequence),
+                cancellationToken: CancellationToken.None);
+            var secondWorker = await workerPool.ExecuteAsync(
+                static (session, _) => (session.WorkerIndex, session.SessionSequence),
+                cancellationToken: CancellationToken.None);
+
+            Func<Task> action = async () => await workerPool.ExecuteAsync<int>(
+                static (session, _) =>
+                {
+                    session.WorkerIndex.Should().Be(0);
+                    throw new InvalidOperationException("boom");
+                },
+                new ExecutionRequestOptions(recycleSessionOnFailure: true),
+                CancellationToken.None);
+            await action.Should().ThrowAsync<InvalidOperationException>();
+
+            var thirdWorker = await workerPool.ExecuteAsync(
+                static (session, _) => (session.WorkerIndex, session.SessionSequence),
+                cancellationToken: CancellationToken.None);
+            var fourthWorker = await workerPool.ExecuteAsync(
+                static (session, _) => (session.WorkerIndex, session.SessionSequence),
+                cancellationToken: CancellationToken.None);
+
+            firstWorker.Should().Be((0, 1));
+            secondWorker.Should().Be((1, 1));
+            thirdWorker.Should().Be((1, 1));
+            fourthWorker.Should().Be((0, 2));
         }
     }
 
     [Fact]
-    public async Task ExecuteAsync_ShouldRecycleOnlyTheFailedWorkerSession()
+    public void Initialize_ShouldDisposeAlreadyStartedWorkersWhenOneWorkerFailsToStart()
     {
         var tracker = new PoolSessionTracker();
 
-        using (var workerPool = CreateWorkerPool(2, tracker))
-        {
-            var firstWorker = await workerPool.ExecuteAsync(
-                (session, cancellationToken) => (session.WorkerIndex, session.SessionSequence),
-                cancellationToken: CancellationToken.None);
-            var secondWorker = await workerPool.ExecuteAsync(
-                (session, cancellationToken) => (session.WorkerIndex, session.SessionSequence),
-                cancellationToken: CancellationToken.None);
+        using var workerPool = new ExecutionWorkerPool<PoolSession>(
+            workerIndex => new IndexedTrackingSessionFactory(workerIndex, tracker, failOnCreate: workerIndex == 1),
+            new ExecutionWorkerPoolOptions(3, "Execution Worker Pool"));
 
-            await Assert.ThrowsAsync<InvalidOperationException>(
-                async () => await workerPool.ExecuteAsync<int>(
-                    (session, cancellationToken) =>
-                    {
-                        Assert.Equal(0, session.WorkerIndex);
-                        throw new InvalidOperationException("boom");
-                    },
-                    new ExecutionRequestOptions(recycleSessionOnFailure: true),
-                    CancellationToken.None));
+        Action action = workerPool.Initialize;
 
-            var thirdWorker = await workerPool.ExecuteAsync(
-                (session, cancellationToken) => (session.WorkerIndex, session.SessionSequence),
-                cancellationToken: CancellationToken.None);
-            var fourthWorker = await workerPool.ExecuteAsync(
-                (session, cancellationToken) => (session.WorkerIndex, session.SessionSequence),
-                cancellationToken: CancellationToken.None);
-
-            Assert.Equal((0, 1), firstWorker);
-            Assert.Equal((1, 1), secondWorker);
-            Assert.Equal((1, 1), thirdWorker);
-            Assert.Equal((0, 2), fourthWorker);
-        }
-
-        Assert.Equal(2, tracker.GetCreateCount(0));
-        Assert.Equal(1, tracker.GetCreateCount(1));
-        Assert.Equal(2, tracker.GetDisposeCount(0));
-        Assert.Equal(1, tracker.GetDisposeCount(1));
+        action.Should().Throw<InvalidOperationException>().WithMessage("boom");
+        tracker.GetCreateCount(0).Should().Be(1);
+        tracker.GetDisposeCount(0).Should().Be(1);
+        tracker.GetCreateCount(1).Should().Be(1);
+        tracker.GetDisposeCount(1).Should().Be(0);
+        tracker.GetCreateCount(2).Should().Be(0);
+        tracker.GetDisposeCount(2).Should().Be(0);
     }
 
     [Fact]
@@ -77,21 +117,23 @@ public sealed class ExecutionWorkerPoolTest
     {
         var tracker = new PoolSessionTracker();
 
-        using (var workerPool = CreateWorkerPool(4, tracker))
+        InitializeWorkerPool();
+        tracker.GetDisposeCount(0).Should().Be(1);
+        tracker.GetDisposeCount(1).Should().Be(1);
+        tracker.GetDisposeCount(2).Should().Be(1);
+        tracker.GetDisposeCount(3).Should().Be(1);
+
+        void InitializeWorkerPool()
         {
+            using var workerPool = CreateWorkerPool(4, tracker);
             workerPool.Initialize();
 
-            Assert.Equal(4, workerPool.WorkerCount);
-            Assert.Equal(1, tracker.GetCreateCount(0));
-            Assert.Equal(1, tracker.GetCreateCount(1));
-            Assert.Equal(1, tracker.GetCreateCount(2));
-            Assert.Equal(1, tracker.GetCreateCount(3));
+            workerPool.WorkerCount.Should().Be(4);
+            tracker.GetCreateCount(0).Should().Be(1);
+            tracker.GetCreateCount(1).Should().Be(1);
+            tracker.GetCreateCount(2).Should().Be(1);
+            tracker.GetCreateCount(3).Should().Be(1);
         }
-
-        Assert.Equal(1, tracker.GetDisposeCount(0));
-        Assert.Equal(1, tracker.GetDisposeCount(1));
-        Assert.Equal(1, tracker.GetDisposeCount(2));
-        Assert.Equal(1, tracker.GetDisposeCount(3));
     }
 
     private static ExecutionWorkerPool<PoolSession> CreateWorkerPool(
@@ -103,29 +145,27 @@ public sealed class ExecutionWorkerPoolTest
             new ExecutionWorkerPoolOptions(workerCount, "Execution Worker Pool"));
     }
 
-    private sealed class IndexedTrackingSessionFactory : IExecutionSessionFactory<PoolSession>
+    private sealed class IndexedTrackingSessionFactory(int workerIndex, PoolSessionTracker tracker, bool failOnCreate = false) : IExecutionSessionFactory<PoolSession>
     {
-        private readonly int _workerIndex;
-        private readonly PoolSessionTracker _tracker;
-
-        public IndexedTrackingSessionFactory(int workerIndex, PoolSessionTracker tracker)
-        {
-            _workerIndex = workerIndex;
-            _tracker = tracker ?? throw new ArgumentNullException(nameof(tracker));
-        }
+        private readonly PoolSessionTracker _tracker = tracker ?? throw new ArgumentNullException(nameof(tracker));
 
         public PoolSession CreateSession(CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var sessionSequence = _tracker.IncrementCreateCount(_workerIndex);
-            return new PoolSession(_workerIndex, sessionSequence, Thread.CurrentThread.ManagedThreadId);
+            var sessionSequence = _tracker.IncrementCreateCount(workerIndex);
+            if (failOnCreate)
+            {
+                throw new InvalidOperationException("boom");
+            }
+
+            return new PoolSession(workerIndex, sessionSequence, Environment.CurrentManagedThreadId);
         }
 
         public void DisposeSession(PoolSession session)
         {
             _ = session ?? throw new ArgumentNullException(nameof(session));
-            _tracker.IncrementDisposeCount(_workerIndex);
+            _tracker.IncrementDisposeCount(workerIndex);
         }
     }
 
@@ -155,19 +195,12 @@ public sealed class ExecutionWorkerPoolTest
         }
     }
 
-    private sealed class PoolSession
+    private sealed class PoolSession(int workerIndex, int sessionSequence, int ownerThreadId)
     {
-        public PoolSession(int workerIndex, int sessionSequence, int ownerThreadId)
-        {
-            WorkerIndex = workerIndex;
-            SessionSequence = sessionSequence;
-            OwnerThreadId = ownerThreadId;
-        }
+        public int WorkerIndex { get; } = workerIndex;
 
-        public int WorkerIndex { get; }
+        public int SessionSequence { get; } = sessionSequence;
 
-        public int SessionSequence { get; }
-
-        public int OwnerThreadId { get; }
+        public int OwnerThreadId { get; } = ownerThreadId;
     }
 }

@@ -1,13 +1,8 @@
 namespace AdaskoTheBeAsT.Interop.Execution;
 
-public sealed class ExecutionRequestOptions
+public sealed class ExecutionRequestOptions(bool recycleSessionOnFailure = false)
 {
-    public ExecutionRequestOptions(bool recycleSessionOnFailure = false)
-    {
-        RecycleSessionOnFailure = recycleSessionOnFailure;
-    }
-
     public static ExecutionRequestOptions Default { get; } = new();
 
-    public bool RecycleSessionOnFailure { get; }
+    public bool RecycleSessionOnFailure { get; } = recycleSessionOnFailure;
 }

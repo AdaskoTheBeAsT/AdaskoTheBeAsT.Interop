@@ -88,7 +88,7 @@ public sealed class ExecutionWorker<TSession> : IDisposable
         var workItem = new ExecutionWorkItem<TResult>(action, effectiveOptions, cancellationToken);
         if (!_channel.Writer.TryWrite(workItem))
         {
-            return Task.FromException<TResult>(new ObjectDisposedException(nameof(ExecutionWorker<TSession>)));
+            return Task.FromException<TResult>(new ObjectDisposedException(nameof(ExecutionWorker<>)));
         }
 
         return workItem.Task;
@@ -102,7 +102,14 @@ public sealed class ExecutionWorker<TSession> : IDisposable
         }
 
         _channel.Writer.TryComplete();
-        _workerCancellationTokenSource.Cancel();
+        try
+        {
+            _workerCancellationTokenSource.Cancel();
+        }
+        catch (ObjectDisposedException exception)
+        {
+            GC.KeepAlive(exception);
+        }
 
         Thread? workerThread;
         lock (_syncRoot)
@@ -160,8 +167,7 @@ public sealed class ExecutionWorker<TSession> : IDisposable
 
     private void Process(object? state)
     {
-        var startupCompletionSource = state as TaskCompletionSource<object?>;
-        if (startupCompletionSource is null)
+        if (state is not TaskCompletionSource<object?> startupCompletionSource)
         {
             throw new ArgumentException("Invalid worker startup state.", nameof(state));
         }
@@ -197,15 +203,11 @@ public sealed class ExecutionWorker<TSession> : IDisposable
             catch (Exception exception)
             {
                 fatalException ??= exception;
-
-                if (fatalException is not null)
-                {
-                    SetFatalFailure(ExceptionDispatchInfo.Capture(fatalException));
-                }
+                SetFatalFailure(ExceptionDispatchInfo.Capture(fatalException));
             }
 
             _channel.Writer.TryComplete(fatalException);
-            FailPendingItems(fatalException ?? new ObjectDisposedException(nameof(ExecutionWorker<TSession>)));
+            FailPendingItems(fatalException ?? new ObjectDisposedException(nameof(ExecutionWorker<>)));
             _workerCancellationTokenSource.Dispose();
         }
     }
@@ -265,11 +267,8 @@ public sealed class ExecutionWorker<TSession> : IDisposable
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        var createdSession = _sessionFactory.CreateSession(cancellationToken);
-        if (createdSession is null)
-        {
-            throw new InvalidOperationException("The session factory returned null.");
-        }
+        var createdSession = _sessionFactory.CreateSession(cancellationToken)
+            ?? throw new InvalidOperationException("The session factory returned null.");
 
         _session = createdSession;
         _operationsProcessed = 0;
@@ -326,7 +325,7 @@ public sealed class ExecutionWorker<TSession> : IDisposable
     {
         if (Volatile.Read(ref _disposeState) != 0)
         {
-            throw new ObjectDisposedException(nameof(ExecutionWorker<TSession>));
+            throw new ObjectDisposedException(nameof(ExecutionWorker<>));
         }
     }
 
@@ -334,10 +333,7 @@ public sealed class ExecutionWorker<TSession> : IDisposable
     {
         lock (_syncRoot)
         {
-            if (_fatalFailure is not null)
-            {
-                _fatalFailure.Throw();
-            }
+            _fatalFailure?.Throw();
         }
     }
 
@@ -362,19 +358,13 @@ public sealed class ExecutionWorker<TSession> : IDisposable
         _sessionFactory.DisposeSession(session);
     }
 
-    private abstract class ExecutionWorkItemBase
+    private abstract class ExecutionWorkItemBase(
+        ExecutionRequestOptions options,
+        CancellationToken cancellationToken)
     {
-        protected ExecutionWorkItemBase(
-            ExecutionRequestOptions options,
-            CancellationToken cancellationToken)
-        {
-            Options = options;
-            CancellationToken = cancellationToken;
-        }
+        public CancellationToken CancellationToken { get; } = cancellationToken;
 
-        public CancellationToken CancellationToken { get; }
-
-        public ExecutionRequestOptions Options { get; }
+        public ExecutionRequestOptions Options { get; } = options;
 
         public abstract void Execute(TSession session);
 
@@ -383,20 +373,14 @@ public sealed class ExecutionWorker<TSession> : IDisposable
         public abstract void TrySetCanceled();
     }
 
-    private sealed class ExecutionWorkItem<TResult> : ExecutionWorkItemBase
+    private sealed class ExecutionWorkItem<TResult>(
+        Func<TSession, CancellationToken, TResult> action,
+        ExecutionRequestOptions options,
+        CancellationToken cancellationToken) : ExecutionWorkItemBase(options, cancellationToken)
     {
-        private readonly Func<TSession, CancellationToken, TResult> _action;
+        private readonly Func<TSession, CancellationToken, TResult> _action = action;
         private readonly TaskCompletionSource<TResult> _completionSource =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public ExecutionWorkItem(
-            Func<TSession, CancellationToken, TResult> action,
-            ExecutionRequestOptions options,
-            CancellationToken cancellationToken)
-            : base(options, cancellationToken)
-        {
-            _action = action;
-        }
 
         public Task<TResult> Task => _completionSource.Task;
 

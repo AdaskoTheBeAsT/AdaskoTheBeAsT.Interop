@@ -21,7 +21,7 @@ jobs:
       solution_name: ${{ vars.SOLUTION_NAME }}
       sonar_organization: ${{ vars.SONAR_ORGANIZATION }}
       sonar_project_key: ${{ vars.SONAR_PROJECT_KEY }}
-      use_global_json: ${{ vars.USE_GLOBAL_JSON }}
+      use_global_json: ${{ vars.USE_GLOBAL_JSON == 'true' }}
     secrets:
       sonar_token: ${{ secrets.SONAR_TOKEN }}
       nuget_api_key: ${{ secrets.NUGET_API_KEY }}

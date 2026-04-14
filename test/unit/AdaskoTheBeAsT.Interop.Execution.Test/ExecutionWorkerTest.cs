@@ -176,10 +176,10 @@ public sealed class ExecutionWorkerTest
         var secondActionCallCount = 0;
 
         var firstTask = worker.ExecuteAsync(
-            (session, _) =>
+            (session, cancellationToken) =>
             {
                 enteredFirstAction.TrySetResult(null);
-                releaseFirstAction.Wait();
+                releaseFirstAction.Wait(cancellationToken);
                 return session.SessionId;
             },
             cancellationToken: CancellationToken.None);
@@ -258,10 +258,10 @@ public sealed class ExecutionWorkerTest
         try
         {
             var firstTask = worker.ExecuteAsync(
-                (session, _) =>
+                (session, cancellationToken) =>
                 {
                     enteredFirstAction.TrySetResult(null);
-                    releaseFirstAction.Wait();
+                    releaseFirstAction.Wait(cancellationToken);
                     return session.SessionId;
                 },
                 cancellationToken: CancellationToken.None);
@@ -302,7 +302,7 @@ public sealed class ExecutionWorkerTest
     {
         for (var attempt = 0; attempt < 500 && !task.IsCompleted; attempt++)
         {
-            await Task.Delay(10);
+            await Task.Delay(10, CancellationToken.None);
         }
 
         task.IsCompleted.Should().BeTrue();

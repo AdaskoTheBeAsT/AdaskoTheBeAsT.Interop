@@ -7,6 +7,44 @@ namespace AdaskoTheBeAsT.Interop.Execution.Test;
 public sealed class ExecutionWorkerPoolTest
 {
     [Fact]
+    public void Constructor_ShouldThrowWhenSessionFactoryFactoryIsNull()
+    {
+        Func<int, IExecutionSessionFactory<PoolSession>>? sessionFactoryFactory = null;
+        Action action = () =>
+        {
+            using var ignored = new ExecutionWorkerPool<PoolSession>(sessionFactoryFactory!, new ExecutionWorkerPoolOptions(1));
+        };
+
+        action.Should().Throw<ArgumentNullException>().WithParameterName(nameof(sessionFactoryFactory));
+    }
+
+    [Fact]
+    public void Constructor_ShouldThrowWhenOptionsAreNull()
+    {
+        ExecutionWorkerPoolOptions? options = null;
+        Action action = () =>
+        {
+            using var ignored = new ExecutionWorkerPool<PoolSession>(
+                static workerIndex => throw new InvalidOperationException(workerIndex.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                options!);
+        };
+
+        action.Should().Throw<ArgumentNullException>().WithParameterName(nameof(options));
+    }
+
+    [Fact]
+    public void Constructor_ShouldThrowWhenSessionFactoryFactoryReturnsNull()
+    {
+        Func<int, IExecutionSessionFactory<PoolSession>> sessionFactoryFactory = static _ => null!;
+        Action action = () =>
+        {
+            using var ignored = new ExecutionWorkerPool<PoolSession>(sessionFactoryFactory, new ExecutionWorkerPoolOptions(1));
+        };
+
+        action.Should().Throw<InvalidOperationException>().WithMessage("The session factory factory returned null.");
+    }
+
+    [Fact]
     public async Task ExecuteAsync_ShouldExecuteActionDelegateAsync()
     {
         var tracker = new PoolSessionTracker();
@@ -113,6 +151,23 @@ public sealed class ExecutionWorkerPoolTest
     }
 
     [Fact]
+    public async Task ExecuteAsync_ShouldUseDefaultWorkerNamingWhenPoolNameIsWhitespaceAsync()
+    {
+        var tracker = new PoolSessionTracker();
+
+        using var workerPool = new ExecutionWorkerPool<PoolSession>(
+            workerIndex => new IndexedTrackingSessionFactory(workerIndex, tracker),
+            new ExecutionWorkerPoolOptions(1, " "));
+
+        var workerIndex = await workerPool.ExecuteAsync(
+            static (session, _) => session.WorkerIndex,
+            cancellationToken: CancellationToken.None);
+
+        workerIndex.Should().Be(0);
+        tracker.GetCreateCount(0).Should().Be(1);
+    }
+
+    [Fact]
     public void Initialize_ShouldInitializeAllWorkers()
     {
         var tracker = new PoolSessionTracker();
@@ -136,6 +191,51 @@ public sealed class ExecutionWorkerPoolTest
         }
     }
 
+    [Fact]
+    public void Initialize_ShouldIgnoreWorkerDisposeFailuresDuringCleanup()
+    {
+        var tracker = new PoolSessionTracker();
+        ExecutionWorkerPool<PoolSession>? workerPool = null;
+
+        workerPool = new ExecutionWorkerPool<PoolSession>(
+            workerIndex => new IndexedTrackingSessionFactory(
+                workerIndex,
+                tracker,
+                failOnCreate: workerIndex == 1,
+                onCreate: workerIndex == 1 ? () => PoisonFirstWorkerThread(workerPool!) : null),
+            new ExecutionWorkerPoolOptions(2, "Execution Worker Pool"));
+
+        Action action = workerPool.Initialize;
+
+        action.Should().Throw<InvalidOperationException>().WithMessage("boom");
+        tracker.GetCreateCount(0).Should().Be(1);
+        tracker.GetCreateCount(1).Should().Be(1);
+        workerPool.Dispose();
+    }
+
+    [Fact]
+    public void ExecuteAsync_ShouldThrowWhenPoolIsDisposed()
+    {
+        var tracker = new PoolSessionTracker();
+        using var workerPool = CreateWorkerPool(1, tracker);
+        workerPool.MarkDisposedForTesting();
+
+        Action action = () => _ = workerPool.ExecuteAsync(
+            static (session, _) => session.WorkerIndex,
+            cancellationToken: CancellationToken.None);
+
+        action.Should().Throw<ObjectDisposedException>();
+    }
+
+    [Fact]
+    public void TryIgnore_ShouldThrowWhenActionIsNull()
+    {
+        Action? action = null;
+        Action assertion = () => ExecutionWorkerPool<PoolSession>.TryIgnore(action!);
+
+        assertion.Should().Throw<ArgumentNullException>().WithParameterName(nameof(action));
+    }
+
     private static ExecutionWorkerPool<PoolSession> CreateWorkerPool(
         int workerCount,
         PoolSessionTracker tracker)
@@ -145,7 +245,17 @@ public sealed class ExecutionWorkerPoolTest
             new ExecutionWorkerPoolOptions(workerCount, "Execution Worker Pool"));
     }
 
-    private sealed class IndexedTrackingSessionFactory(int workerIndex, PoolSessionTracker tracker, bool failOnCreate = false) : IExecutionSessionFactory<PoolSession>
+    private static void PoisonFirstWorkerThread(ExecutionWorkerPool<PoolSession> workerPool)
+    {
+        workerPool.SetWorkerThreadForTesting(0, new Thread(static () => { }));
+    }
+
+    private sealed class IndexedTrackingSessionFactory(
+        int workerIndex,
+        PoolSessionTracker tracker,
+        bool failOnCreate = false,
+        bool failOnDispose = false,
+        Action? onCreate = null) : IExecutionSessionFactory<PoolSession>
     {
         private readonly PoolSessionTracker _tracker = tracker ?? throw new ArgumentNullException(nameof(tracker));
 
@@ -154,6 +264,7 @@ public sealed class ExecutionWorkerPoolTest
             cancellationToken.ThrowIfCancellationRequested();
 
             var sessionSequence = _tracker.IncrementCreateCount(workerIndex);
+            onCreate?.Invoke();
             if (failOnCreate)
             {
                 throw new InvalidOperationException("boom");
@@ -166,6 +277,11 @@ public sealed class ExecutionWorkerPoolTest
         {
             _ = session ?? throw new ArgumentNullException(nameof(session));
             _tracker.IncrementDisposeCount(workerIndex);
+
+            if (failOnDispose)
+            {
+                throw new InvalidOperationException("dispose boom");
+            }
         }
     }
 

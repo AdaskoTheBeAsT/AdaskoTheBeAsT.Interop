@@ -6,12 +6,33 @@
       "tool": {
         "name": "Kompilator Microsoft (R) Visual C#",
         "version": "5.3.0.0",
-        "fileVersion": "5.3.0-2.26153.122 (4d3023de605a78ba3e59e50c657eed70f125c68a)",
+        "fileVersion": "5.3.0-2.26180.118 (1e7d5a8ae309af8fad1826a5e968aae30719a281)",
         "semanticVersion": "5.3.0",
         "language": "pl-PL"
       },
       "results": [
         {
+          "ruleId": "RCS1158",
+          "level": "note",
+          "message": "Static member in generic type should use a type parameter",
+          "locations": [
+            {
+              "resultFile": {
+                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorkerPool.cs",
+                "region": {
+                  "startLine": 74,
+                  "startColumn": 26,
+                  "endLine": 74,
+                  "endColumn": 35
+                }
+              }
+            }
+          ],
+          "properties": {
+            "warningLevel": 1
+          }
+        },
+        {
           "ruleId": "CA1512",
           "level": "note",
           "message": "Użyj „ArgumentOutOfRangeException.ThrowIfNegative” zamiast jawnego zgłaszania nowego wystąpienia wyjątku",
@@ -46,113 +67,6 @@
             "customProperties": {
               "MethodNameProperty": "ThrowIfNegative"
             }
-          }
-        },
-        {
-          "ruleId": "CA1510",
-          "level": "note",
-          "message": "Użyj „ArgumentNullException.ThrowIfNull” zamiast jawnego zgłaszania nowego wystąpienia wyjątku",
-          "locations": [
-            {
-              "resultFile": {
-                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorkerPool.cs",
-                "region": {
-                  "startLine": 16,
-                  "startColumn": 9,
-                  "endLine": 19,
-                  "endColumn": 10
-                }
-              }
-            }
-          ],
-          "relatedLocations": [
-            {
-              "physicalLocation": {
-                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorkerPool.cs",
-                "region": {
-                  "startLine": 16,
-                  "startColumn": 13,
-                  "endLine": 16,
-                  "endColumn": 34
-                }
-              }
-            }
-          ],
-          "properties": {
-            "warningLevel": 1
-          }
-        },
-        {
-          "ruleId": "CA1512",
-          "ruleKey": "CA1512-001",
-          "level": "note",
-          "message": "Użyj „ArgumentOutOfRangeException.ThrowIfNegative” zamiast jawnego zgłaszania nowego wystąpienia wyjątku",
-          "locations": [
-            {
-              "resultFile": {
-                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorkerOptions.cs",
-                "region": {
-                  "startLine": 10,
-                  "startColumn": 9,
-                  "endLine": 13,
-                  "endColumn": 10
-                }
-              }
-            }
-          ],
-          "relatedLocations": [
-            {
-              "physicalLocation": {
-                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorkerOptions.cs",
-                "region": {
-                  "startLine": 10,
-                  "startColumn": 13,
-                  "endLine": 10,
-                  "endColumn": 36
-                }
-              }
-            }
-          ],
-          "properties": {
-            "warningLevel": 1,
-            "customProperties": {
-              "MethodNameProperty": "ThrowIfNegative"
-            }
-          }
-        },
-        {
-          "ruleId": "CA1510",
-          "ruleKey": "CA1510-001",
-          "level": "note",
-          "message": "Użyj „ArgumentNullException.ThrowIfNull” zamiast jawnego zgłaszania nowego wystąpienia wyjątku",
-          "locations": [
-            {
-              "resultFile": {
-                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorkerPool.cs",
-                "region": {
-                  "startLine": 16,
-                  "startColumn": 9,
-                  "endLine": 19,
-                  "endColumn": 10
-                }
-              }
-            }
-          ],
-          "relatedLocations": [
-            {
-              "physicalLocation": {
-                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorkerPool.cs",
-                "region": {
-                  "startLine": 16,
-                  "startColumn": 13,
-                  "endLine": 16,
-                  "endColumn": 34
-                }
-              }
-            }
-          ],
-          "properties": {
-            "warningLevel": 1
           }
         },
         {
@@ -236,11 +150,11 @@
           "locations": [
             {
               "resultFile": {
-                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorker.cs",
+                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorkerPool.cs",
                 "region": {
-                  "startLine": 52,
+                  "startLine": 16,
                   "startColumn": 9,
-                  "endLine": 55,
+                  "endLine": 19,
                   "endColumn": 10
                 }
               }
@@ -249,12 +163,12 @@
           "relatedLocations": [
             {
               "physicalLocation": {
-                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorker.cs",
+                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorkerPool.cs",
                 "region": {
-                  "startLine": 52,
+                  "startLine": 16,
                   "startColumn": 13,
-                  "endLine": 52,
-                  "endColumn": 19
+                  "endLine": 16,
+                  "endColumn": 34
                 }
               }
             }
@@ -265,7 +179,6 @@
         },
         {
           "ruleId": "CA1510",
-          "ruleKey": "CA1510-001",
           "level": "note",
           "message": "Użyj „ArgumentNullException.ThrowIfNull” zamiast jawnego zgłaszania nowego wystąpienia wyjątku",
           "locations": [
@@ -299,51 +212,17 @@
           }
         },
         {
-          "ruleId": "CA1513",
+          "ruleId": "CA1510",
           "level": "note",
-          "message": "Użyj „ObjectDisposedException.ThrowIf” zamiast jawnego zgłaszania nowego wystąpienia wyjątku",
-          "locations": [
-            {
-              "resultFile": {
-                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorkerPool.cs",
-                "region": {
-                  "startLine": 131,
-                  "startColumn": 9,
-                  "endLine": 134,
-                  "endColumn": 10
-                }
-              }
-            }
-          ],
-          "relatedLocations": [
-            {
-              "physicalLocation": {
-                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorkerPool.cs",
-                "region": {
-                  "startLine": 131,
-                  "startColumn": 13,
-                  "endLine": 131,
-                  "endColumn": 50
-                }
-              }
-            }
-          ],
-          "properties": {
-            "warningLevel": 1
-          }
-        },
-        {
-          "ruleId": "CA1513",
-          "level": "note",
-          "message": "Użyj „ObjectDisposedException.ThrowIf” zamiast jawnego zgłaszania nowego wystąpienia wyjątku",
+          "message": "Użyj „ArgumentNullException.ThrowIfNull” zamiast jawnego zgłaszania nowego wystąpienia wyjątku",
           "locations": [
             {
               "resultFile": {
                 "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorker.cs",
                 "region": {
-                  "startLine": 326,
+                  "startLine": 73,
                   "startColumn": 9,
-                  "endLine": 329,
+                  "endLine": 76,
                   "endColumn": 10
                 }
               }
@@ -354,10 +233,10 @@
               "physicalLocation": {
                 "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorker.cs",
                 "region": {
-                  "startLine": 326,
+                  "startLine": 73,
                   "startColumn": 13,
-                  "endLine": 326,
-                  "endColumn": 50
+                  "endLine": 73,
+                  "endColumn": 19
                 }
               }
             }
@@ -367,79 +246,9 @@
           }
         },
         {
-          "ruleId": "CA1513",
-          "ruleKey": "CA1513-001",
-          "level": "note",
-          "message": "Użyj „ObjectDisposedException.ThrowIf” zamiast jawnego zgłaszania nowego wystąpienia wyjątku",
-          "locations": [
-            {
-              "resultFile": {
-                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorker.cs",
-                "region": {
-                  "startLine": 326,
-                  "startColumn": 9,
-                  "endLine": 329,
-                  "endColumn": 10
-                }
-              }
-            }
-          ],
-          "relatedLocations": [
-            {
-              "physicalLocation": {
-                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorker.cs",
-                "region": {
-                  "startLine": 326,
-                  "startColumn": 13,
-                  "endLine": 326,
-                  "endColumn": 50
-                }
-              }
-            }
-          ],
-          "properties": {
-            "warningLevel": 1
-          }
-        },
-        {
-          "ruleId": "CA1513",
-          "ruleKey": "CA1513-001",
-          "level": "note",
-          "message": "Użyj „ObjectDisposedException.ThrowIf” zamiast jawnego zgłaszania nowego wystąpienia wyjątku",
-          "locations": [
-            {
-              "resultFile": {
-                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorkerPool.cs",
-                "region": {
-                  "startLine": 131,
-                  "startColumn": 9,
-                  "endLine": 134,
-                  "endColumn": 10
-                }
-              }
-            }
-          ],
-          "relatedLocations": [
-            {
-              "physicalLocation": {
-                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorkerPool.cs",
-                "region": {
-                  "startLine": 131,
-                  "startColumn": 13,
-                  "endLine": 131,
-                  "endColumn": 50
-                }
-              }
-            }
-          ],
-          "properties": {
-            "warningLevel": 1
-          }
-        },
-        {
-          "ruleId": "CA1416",
+          "ruleId": "VSTHRD002",
           "level": "error",
-          "message": "To miejsce wywołania jest osiągalne na wszystkich platformach. Metoda „Thread.SetApartmentState(ApartmentState)” jest obsługiwana tylko na następujących platformach: 'windows'.",
+          "message": "Synchronously waiting on tasks or awaiters may cause deadlocks. Use await or JoinableTaskFactory.Run instead.",
           "suppressionStates": [
             "suppressedInSource"
           ],
@@ -448,32 +257,10 @@
               "resultFile": {
                 "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorker.cs",
                 "region": {
-                  "startLine": 297,
-                  "startColumn": 9,
-                  "endLine": 297,
-                  "endColumn": 53
-                }
-              }
-            }
-          ]
-        },
-        {
-          "ruleId": "CA1416",
-          "ruleKey": "CA1416-001",
-          "level": "error",
-          "message": "To miejsce wywołania jest osiągalne na wszystkich platformach. Metoda „Thread.SetApartmentState(ApartmentState)” jest obsługiwana tylko na następujących platformach: 'windows'.",
-          "suppressionStates": [
-            "suppressedInSource"
-          ],
-          "locations": [
-            {
-              "resultFile": {
-                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorker.cs",
-                "region": {
-                  "startLine": 297,
-                  "startColumn": 9,
-                  "endLine": 297,
-                  "endColumn": 53
+                  "startLine": 254,
+                  "startColumn": 34,
+                  "endLine": 254,
+                  "endColumn": 43
                 }
               }
             }
@@ -491,9 +278,9 @@
               "resultFile": {
                 "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorker.cs",
                 "region": {
-                  "startLine": 285,
+                  "startLine": 330,
                   "startColumn": 14,
-                  "endLine": 285,
+                  "endLine": 330,
                   "endColumn": 23
                 }
               }
@@ -501,18 +288,17 @@
           ]
         },
         {
-          "ruleId": "CA1512",
-          "ruleKey": "CA1512-001",
+          "ruleId": "CA1513",
           "level": "note",
-          "message": "Użyj „ArgumentOutOfRangeException.ThrowIfNegativeOrZero” zamiast jawnego zgłaszania nowego wystąpienia wyjątku",
+          "message": "Użyj „ObjectDisposedException.ThrowIf” zamiast jawnego zgłaszania nowego wystąpienia wyjątku",
           "locations": [
             {
               "resultFile": {
-                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorkerPoolOptions.cs",
+                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorkerPool.cs",
                 "region": {
-                  "startLine": 11,
+                  "startLine": 142,
                   "startColumn": 9,
-                  "endLine": 14,
+                  "endLine": 145,
                   "endColumn": 10
                 }
               }
@@ -521,87 +307,12 @@
           "relatedLocations": [
             {
               "physicalLocation": {
-                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorkerPoolOptions.cs",
+                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorkerPool.cs",
                 "region": {
-                  "startLine": 11,
+                  "startLine": 142,
                   "startColumn": 13,
-                  "endLine": 11,
-                  "endColumn": 24
-                }
-              }
-            }
-          ],
-          "properties": {
-            "warningLevel": 1,
-            "customProperties": {
-              "MethodNameProperty": "ThrowIfNegativeOrZero"
-            }
-          }
-        },
-        {
-          "ruleId": "CA1512",
-          "ruleKey": "CA1512-001",
-          "level": "note",
-          "message": "Użyj „ArgumentOutOfRangeException.ThrowIfNegative” zamiast jawnego zgłaszania nowego wystąpienia wyjątku",
-          "locations": [
-            {
-              "resultFile": {
-                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorkerPoolOptions.cs",
-                "region": {
-                  "startLine": 16,
-                  "startColumn": 9,
-                  "endLine": 19,
-                  "endColumn": 10
-                }
-              }
-            }
-          ],
-          "relatedLocations": [
-            {
-              "physicalLocation": {
-                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorkerPoolOptions.cs",
-                "region": {
-                  "startLine": 16,
-                  "startColumn": 13,
-                  "endLine": 16,
-                  "endColumn": 36
-                }
-              }
-            }
-          ],
-          "properties": {
-            "warningLevel": 1,
-            "customProperties": {
-              "MethodNameProperty": "ThrowIfNegative"
-            }
-          }
-        },
-        {
-          "ruleId": "CA1510",
-          "level": "note",
-          "message": "Użyj „ArgumentNullException.ThrowIfNull” zamiast jawnego zgłaszania nowego wystąpienia wyjątku",
-          "locations": [
-            {
-              "resultFile": {
-                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorker.cs",
-                "region": {
-                  "startLine": 73,
-                  "startColumn": 9,
-                  "endLine": 76,
-                  "endColumn": 10
-                }
-              }
-            }
-          ],
-          "relatedLocations": [
-            {
-              "physicalLocation": {
-                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorker.cs",
-                "region": {
-                  "startLine": 73,
-                  "startColumn": 13,
-                  "endLine": 73,
-                  "endColumn": 19
+                  "endLine": 142,
+                  "endColumn": 50
                 }
               }
             }
@@ -611,44 +322,9 @@
           }
         },
         {
-          "ruleId": "CA1510",
-          "ruleKey": "CA1510-001",
-          "level": "note",
-          "message": "Użyj „ArgumentNullException.ThrowIfNull” zamiast jawnego zgłaszania nowego wystąpienia wyjątku",
-          "locations": [
-            {
-              "resultFile": {
-                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorker.cs",
-                "region": {
-                  "startLine": 73,
-                  "startColumn": 9,
-                  "endLine": 76,
-                  "endColumn": 10
-                }
-              }
-            }
-          ],
-          "relatedLocations": [
-            {
-              "physicalLocation": {
-                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorker.cs",
-                "region": {
-                  "startLine": 73,
-                  "startColumn": 13,
-                  "endLine": 73,
-                  "endColumn": 19
-                }
-              }
-            }
-          ],
-          "properties": {
-            "warningLevel": 1
-          }
-        },
-        {
-          "ruleId": "VSTHRD002",
+          "ruleId": "CA1416",
           "level": "error",
-          "message": "Synchronously waiting on tasks or awaiters may cause deadlocks. Use await or JoinableTaskFactory.Run instead.",
+          "message": "To miejsce wywołania jest osiągalne na wszystkich platformach. Metoda „Thread.SetApartmentState(ApartmentState)” jest obsługiwana tylko na następujących platformach: 'windows'.",
           "suppressionStates": [
             "suppressedInSource"
           ],
@@ -657,33 +333,52 @@
               "resultFile": {
                 "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorker.cs",
                 "region": {
-                  "startLine": 164,
-                  "startColumn": 34,
-                  "endLine": 164,
-                  "endColumn": 43
+                  "startLine": 342,
+                  "startColumn": 9,
+                  "endLine": 342,
+                  "endColumn": 53
                 }
               }
             }
           ]
+        },
+        {
+          "ruleId": "CA1513",
+          "level": "note",
+          "message": "Użyj „ObjectDisposedException.ThrowIf” zamiast jawnego zgłaszania nowego wystąpienia wyjątku",
+          "locations": [
+            {
+              "resultFile": {
+                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorker.cs",
+                "region": {
+                  "startLine": 371,
+                  "startColumn": 9,
+                  "endLine": 374,
+                  "endColumn": 10
+                }
+              }
+            }
+          ],
+          "relatedLocations": [
+            {
+              "physicalLocation": {
+                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/src/AdaskoTheBeAsT.Interop.Execution/ExecutionWorker.cs",
+                "region": {
+                  "startLine": 371,
+                  "startColumn": 13,
+                  "endLine": 371,
+                  "endColumn": 50
+                }
+              }
+            }
+          ],
+          "properties": {
+            "warningLevel": 1
+          }
         }
       ],
       "rules": {
         "CA1416": {
-          "id": "CA1416",
-          "shortDescription": "Walidacja zgodności z platformą",
-          "fullDescription": "Użycie w składniku interfejsu API zależnego od platformy powoduje, że kod nie działa na różnych platformach.",
-          "defaultLevel": "warning",
-          "helpUri": "https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1416",
-          "properties": {
-            "category": "Interoperability",
-            "isEnabledByDefault": true,
-            "tags": [
-              "Telemetry",
-              "EnabledRuleInAggressiveMode"
-            ]
-          }
-        },
-        "CA1416-001": {
           "id": "CA1416",
           "shortDescription": "Walidacja zgodności z platformą",
           "fullDescription": "Użycie w składniku interfejsu API zależnego od platformy powoduje, że kod nie działa na różnych platformach.",
@@ -713,37 +408,7 @@
             ]
           }
         },
-        "CA1510-001": {
-          "id": "CA1510",
-          "shortDescription": "Użyj pomocnika zgłaszania ArgumentNullException",
-          "fullDescription": "Pomocnicy zgłaszania są prostsi i wydajniejsi niż blok if konstruujący nowe wystąpienie wyjątku.",
-          "defaultLevel": "note",
-          "helpUri": "https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1510",
-          "properties": {
-            "category": "Maintainability",
-            "isEnabledByDefault": true,
-            "tags": [
-              "Telemetry",
-              "EnabledRuleInAggressiveMode"
-            ]
-          }
-        },
         "CA1512": {
-          "id": "CA1512",
-          "shortDescription": "Użyj pomocnika zgłaszania ArgumentOutOfRangeException",
-          "fullDescription": "Pomocnicy zgłaszania są prostsi i wydajniejsi niż blok if konstruujący nowe wystąpienie wyjątku.",
-          "defaultLevel": "note",
-          "helpUri": "https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1512",
-          "properties": {
-            "category": "Maintainability",
-            "isEnabledByDefault": true,
-            "tags": [
-              "Telemetry",
-              "EnabledRuleInAggressiveMode"
-            ]
-          }
-        },
-        "CA1512-001": {
           "id": "CA1512",
           "shortDescription": "Użyj pomocnika zgłaszania ArgumentOutOfRangeException",
           "fullDescription": "Pomocnicy zgłaszania są prostsi i wydajniejsi niż blok if konstruujący nowe wystąpienie wyjątku.",
@@ -773,19 +438,14 @@
             ]
           }
         },
-        "CA1513-001": {
-          "id": "CA1513",
-          "shortDescription": "Użyj pomocnika zgłaszania ObjectDisposedException",
-          "fullDescription": "Pomocnicy zgłaszania są prostsi i wydajniejsi niż blok if konstruujący nowe wystąpienie wyjątku.",
+        "RCS1158": {
+          "id": "RCS1158",
+          "shortDescription": "Static member in generic type should use a type parameter",
           "defaultLevel": "note",
-          "helpUri": "https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1513",
+          "helpUri": "https://josefpihrt.github.io/docs/roslynator/analyzers/RCS1158",
           "properties": {
-            "category": "Maintainability",
-            "isEnabledByDefault": true,
-            "tags": [
-              "Telemetry",
-              "EnabledRuleInAggressiveMode"
-            ]
+            "category": "Roslynator",
+            "isEnabledByDefault": true
           }
         },
         "VSTHRD002": {

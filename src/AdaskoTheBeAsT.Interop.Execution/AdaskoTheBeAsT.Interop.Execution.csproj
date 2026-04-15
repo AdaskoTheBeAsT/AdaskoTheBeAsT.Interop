@@ -6,6 +6,10 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="$(MSBuildProjectName).Test" />
+  </ItemGroup>
+
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
     <PackageReference Include="System.Threading.Channels" Version="10.0.6" />
   </ItemGroup>

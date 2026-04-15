@@ -71,6 +71,31 @@ public sealed class ExecutionWorkerPool<TSession> : IDisposable
         }
     }
 
+    internal static void TryIgnore(Action action)
+    {
+        var safeAction = action ?? throw new ArgumentNullException(nameof(action));
+
+        try
+        {
+            safeAction();
+        }
+        catch (Exception)
+        {
+            GC.KeepAlive(safeAction);
+        }
+    }
+
+    internal void MarkDisposedForTesting()
+    {
+        Interlocked.Exchange(ref _disposeState, 1);
+    }
+
+    internal void SetWorkerThreadForTesting(int workerIndex, Thread workerThread)
+    {
+        _ = workerThread ?? throw new ArgumentNullException(nameof(workerThread));
+        _workers[workerIndex].SetWorkerThreadForTesting(workerThread);
+    }
+
     private static ExecutionWorker<TSession>[] CreateWorkers(
         Func<int, IExecutionSessionFactory<TSession>> sessionFactoryFactory,
         ExecutionWorkerPoolOptions options)
@@ -102,20 +127,6 @@ public sealed class ExecutionWorkerPool<TSession> : IDisposable
         }
 
         return string.Format(CultureInfo.InvariantCulture, "{0} #{1}", poolName, workerIndex + 1);
-    }
-
-    private static void TryIgnore(Action action)
-    {
-        var safeAction = action ?? throw new ArgumentNullException(nameof(action));
-
-        try
-        {
-            safeAction();
-        }
-        catch (Exception)
-        {
-            GC.KeepAlive(safeAction);
-        }
     }
 
     private ExecutionWorker<TSession> SelectWorker()

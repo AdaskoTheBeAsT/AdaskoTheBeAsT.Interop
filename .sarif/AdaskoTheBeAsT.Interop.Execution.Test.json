@@ -6,95 +6,155 @@
       "tool": {
         "name": "Kompilator Microsoft (R) Visual C#",
         "version": "5.3.0.0",
-        "fileVersion": "5.3.0-2.26153.122 (4d3023de605a78ba3e59e50c657eed70f125c68a)",
+        "fileVersion": "5.3.0-2.26180.118 (1e7d5a8ae309af8fad1826a5e968aae30719a281)",
         "semanticVersion": "5.3.0",
         "language": "pl-PL"
       },
       "results": [
         {
-          "ruleId": "MA0040",
+          "ruleId": "CC0030",
           "level": "note",
-          "message": "Use an overload with a CancellationToken, available tokens: Xunit.TestContext.Current.CancellationToken",
+          "message": "This variable can be made const.",
           "locations": [
             {
               "resultFile": {
-                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/test/unit/AdaskoTheBeAsT.Interop.Execution.Test/ExecutionWorkerTest.cs",
+                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/test/unit/AdaskoTheBeAsT.Interop.Execution.Test/ExecutionWorkerPoolTest.cs",
                 "region": {
-                  "startLine": 305,
-                  "startColumn": 19,
-                  "endLine": 305,
-                  "endColumn": 33
+                  "startLine": 12,
+                  "startColumn": 9,
+                  "endLine": 12,
+                  "endColumn": 88
                 }
               }
             }
           ],
           "properties": {
-            "warningLevel": 1,
-            "customProperties": {
-              "CancellationTokens": "Xunit.TestContext.Current.CancellationToken",
-              "ParameterIndex": "1",
-              "ParameterIsEnumeratorCancellation": "False",
-              "ParameterName": "cancellationToken"
-            }
+            "warningLevel": 1
           }
         },
         {
-          "ruleId": "CA2016",
+          "ruleId": "IDE0039",
           "level": "note",
-          "message": "Prześlij dalej parametr „_” do metody „Wait” lub przekaż element „CancellationToken.None” jawnie, aby wskazać celowe niepropagowanie tokenu",
+          "message": "Użyj funkcji lokalnej",
           "locations": [
             {
               "resultFile": {
-                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/test/unit/AdaskoTheBeAsT.Interop.Execution.Test/ExecutionWorkerTest.cs",
+                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/test/unit/AdaskoTheBeAsT.Interop.Execution.Test/ExecutionWorkerPoolTest.cs",
                 "region": {
-                  "startLine": 182,
-                  "startColumn": 17,
-                  "endLine": 182,
-                  "endColumn": 40
+                  "startLine": 38,
+                  "startColumn": 58,
+                  "endLine": 38,
+                  "endColumn": 79
+                }
+              }
+            }
+          ],
+          "relatedLocations": [
+            {
+              "physicalLocation": {
+                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/test/unit/AdaskoTheBeAsT.Interop.Execution.Test/ExecutionWorkerPoolTest.cs",
+                "region": {
+                  "startLine": 38,
+                  "startColumn": 9,
+                  "endLine": 38,
+                  "endColumn": 100
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/test/unit/AdaskoTheBeAsT.Interop.Execution.Test/ExecutionWorkerPoolTest.cs",
+                "region": {
+                  "startLine": 38,
+                  "startColumn": 82,
+                  "endLine": 38,
+                  "endColumn": 99
+                }
+              }
+            },
+            {
+              "physicalLocation": {
+                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/test/unit/AdaskoTheBeAsT.Interop.Execution.Test/ExecutionWorkerPoolTest.cs",
+                "region": {
+                  "startLine": 41,
+                  "startColumn": 70,
+                  "endLine": 41,
+                  "endColumn": 91
                 }
               }
             }
           ],
           "properties": {
-            "warningLevel": 1,
-            "customProperties": {
-              "ArgumentName": "_",
-              "ParameterName": null,
-              "ShouldFix": "1"
-            }
+            "warningLevel": 1
           }
         },
         {
-          "ruleId": "MA0040",
+          "ruleId": "CC0030",
           "level": "note",
-          "message": "Use an overload with a CancellationToken, available tokens: _, queuedCancellationTokenSource.Token, Xunit.TestContext.Current.CancellationToken",
+          "message": "This variable can be made const.",
           "locations": [
             {
               "resultFile": {
-                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/test/unit/AdaskoTheBeAsT.Interop.Execution.Test/ExecutionWorkerTest.cs",
+                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/test/unit/AdaskoTheBeAsT.Interop.Execution.Test/ExecutionWorkerPoolTest.cs",
                 "region": {
-                  "startLine": 182,
-                  "startColumn": 17,
-                  "endLine": 182,
-                  "endColumn": 42
+                  "startLine": 24,
+                  "startColumn": 9,
+                  "endLine": 24,
+                  "endColumn": 52
                 }
               }
             }
           ],
           "properties": {
-            "warningLevel": 1,
-            "customProperties": {
-              "CancellationTokens": "_,queuedCancellationTokenSource.Token,Xunit.TestContext.Current.CancellationToken",
-              "ParameterIndex": "0",
-              "ParameterIsEnumeratorCancellation": "False",
-              "ParameterName": "cancellationToken"
+            "warningLevel": 1
+          }
+        },
+        {
+          "ruleId": "CC0030",
+          "level": "note",
+          "message": "This variable can be made const.",
+          "locations": [
+            {
+              "resultFile": {
+                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/test/unit/AdaskoTheBeAsT.Interop.Execution.Test/ExecutionWorkerTest.cs",
+                "region": {
+                  "startLine": 13,
+                  "startColumn": 9,
+                  "endLine": 13,
+                  "endColumn": 70
+                }
+              }
             }
+          ],
+          "properties": {
+            "warningLevel": 1
+          }
+        },
+        {
+          "ruleId": "CC0030",
+          "level": "note",
+          "message": "This variable can be made const.",
+          "locations": [
+            {
+              "resultFile": {
+                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/test/unit/AdaskoTheBeAsT.Interop.Execution.Test/ExecutionWorkerPoolTest.cs",
+                "region": {
+                  "startLine": 233,
+                  "startColumn": 9,
+                  "endLine": 233,
+                  "endColumn": 31
+                }
+              }
+            }
+          ],
+          "properties": {
+            "warningLevel": 1
           }
         },
         {
           "ruleId": "ParallelCheckerInfo",
           "level": "note",
-          "message": "Detection in 69 ms (0 issues) *",
+          "message": "Detection in 180 ms (0 issues) *",
           "locations": [
             {
               "resultFile": {
@@ -111,154 +171,32 @@
           "properties": {
             "warningLevel": 1
           }
-        },
-        {
-          "ruleId": "CA2016",
-          "ruleKey": "CA2016-001",
-          "level": "note",
-          "message": "Prześlij dalej parametr „_” do metody „Wait” lub przekaż element „CancellationToken.None” jawnie, aby wskazać celowe niepropagowanie tokenu",
-          "locations": [
-            {
-              "resultFile": {
-                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/test/unit/AdaskoTheBeAsT.Interop.Execution.Test/ExecutionWorkerTest.cs",
-                "region": {
-                  "startLine": 182,
-                  "startColumn": 17,
-                  "endLine": 182,
-                  "endColumn": 40
-                }
-              }
-            }
-          ],
-          "properties": {
-            "warningLevel": 1,
-            "customProperties": {
-              "ArgumentName": "_",
-              "ParameterName": null,
-              "ShouldFix": "1"
-            }
-          }
-        },
-        {
-          "ruleId": "CA2016",
-          "level": "note",
-          "message": "Prześlij dalej parametr „_” do metody „Wait” lub przekaż element „CancellationToken.None” jawnie, aby wskazać celowe niepropagowanie tokenu",
-          "locations": [
-            {
-              "resultFile": {
-                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/test/unit/AdaskoTheBeAsT.Interop.Execution.Test/ExecutionWorkerTest.cs",
-                "region": {
-                  "startLine": 264,
-                  "startColumn": 21,
-                  "endLine": 264,
-                  "endColumn": 44
-                }
-              }
-            }
-          ],
-          "properties": {
-            "warningLevel": 1,
-            "customProperties": {
-              "ArgumentName": "_",
-              "ParameterName": null,
-              "ShouldFix": "1"
-            }
-          }
-        },
-        {
-          "ruleId": "MA0040",
-          "level": "note",
-          "message": "Use an overload with a CancellationToken, available tokens: _, Xunit.TestContext.Current.CancellationToken",
-          "locations": [
-            {
-              "resultFile": {
-                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/test/unit/AdaskoTheBeAsT.Interop.Execution.Test/ExecutionWorkerTest.cs",
-                "region": {
-                  "startLine": 264,
-                  "startColumn": 21,
-                  "endLine": 264,
-                  "endColumn": 46
-                }
-              }
-            }
-          ],
-          "properties": {
-            "warningLevel": 1,
-            "customProperties": {
-              "CancellationTokens": "_,Xunit.TestContext.Current.CancellationToken",
-              "ParameterIndex": "0",
-              "ParameterIsEnumeratorCancellation": "False",
-              "ParameterName": "cancellationToken"
-            }
-          }
-        },
-        {
-          "ruleId": "CA2016",
-          "ruleKey": "CA2016-001",
-          "level": "note",
-          "message": "Prześlij dalej parametr „_” do metody „Wait” lub przekaż element „CancellationToken.None” jawnie, aby wskazać celowe niepropagowanie tokenu",
-          "locations": [
-            {
-              "resultFile": {
-                "uri": "file:///D:/GitHub/AdaskoTheBeAsT.Interop/test/unit/AdaskoTheBeAsT.Interop.Execution.Test/ExecutionWorkerTest.cs",
-                "region": {
-                  "startLine": 264,
-                  "startColumn": 21,
-                  "endLine": 264,
-                  "endColumn": 44
-                }
-              }
-            }
-          ],
-          "properties": {
-            "warningLevel": 1,
-            "customProperties": {
-              "ArgumentName": "_",
-              "ParameterName": null,
-              "ShouldFix": "1"
-            }
-          }
         }
       ],
       "rules": {
-        "CA2016": {
-          "id": "CA2016",
-          "shortDescription": "Prześlij dalej parametr „CancellationToken” do metod",
-          "fullDescription": "Prześlij dalej parametr „CancellationToken” do metod, aby upewnić się, że powiadomienia o anulowaniu operacji zostaną prawidłowo rozpropagowane, lub przekaż element „CancellationToken.None” jawnie, aby wskazać celowe niepropagowanie tokenu.",
+        "CC0030": {
+          "id": "CC0030",
+          "shortDescription": "Make Local Variable Constant.",
+          "fullDescription": "This variable is assigned a constant value and never changed it can be made 'const'",
           "defaultLevel": "note",
-          "helpUri": "https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2016",
+          "helpUri": "https://code-cracker.github.io/diagnostics/CC0030.html",
           "properties": {
-            "category": "Reliability",
-            "isEnabledByDefault": true,
-            "tags": [
-              "Telemetry",
-              "EnabledRuleInAggressiveMode"
-            ]
-          }
-        },
-        "CA2016-001": {
-          "id": "CA2016",
-          "shortDescription": "Prześlij dalej parametr „CancellationToken” do metod",
-          "fullDescription": "Prześlij dalej parametr „CancellationToken” do metod, aby upewnić się, że powiadomienia o anulowaniu operacji zostaną prawidłowo rozpropagowane, lub przekaż element „CancellationToken.None” jawnie, aby wskazać celowe niepropagowanie tokenu.",
-          "defaultLevel": "note",
-          "helpUri": "https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2016",
-          "properties": {
-            "category": "Reliability",
-            "isEnabledByDefault": true,
-            "tags": [
-              "Telemetry",
-              "EnabledRuleInAggressiveMode"
-            ]
-          }
-        },
-        "MA0040": {
-          "id": "MA0040",
-          "shortDescription": "Forward the CancellationToken parameter to methods that take one",
-          "defaultLevel": "note",
-          "helpUri": "https://github.com/meziantou/Meziantou.Analyzer/blob/main/docs/Rules/MA0040.md",
-          "properties": {
-            "category": "Usage",
+            "category": "Performance",
             "isEnabledByDefault": true
+          }
+        },
+        "IDE0039": {
+          "id": "IDE0039",
+          "shortDescription": "Użyj funkcji lokalnej",
+          "defaultLevel": "note",
+          "helpUri": "https://learn.microsoft.com/dotnet/fundamentals/code-analysis/style-rules/ide0039",
+          "properties": {
+            "category": "Style",
+            "isEnabledByDefault": true,
+            "tags": [
+              "Telemetry",
+              "EnforceOnBuild_Recommended"
+            ]
           }
         },
         "ParallelCheckerInfo": {

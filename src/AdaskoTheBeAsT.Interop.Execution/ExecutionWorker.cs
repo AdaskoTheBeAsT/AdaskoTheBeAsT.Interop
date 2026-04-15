@@ -131,41 +131,12 @@ public sealed class ExecutionWorker<TSession> : IDisposable
         workerThread.Join();
     }
 
-    private void EnsureInitialized()
+    internal bool TryCompleteChannelForTesting(Exception? exception = null)
     {
-        Task startupTask;
-        lock (_syncRoot)
-        {
-            ThrowIfDisposed();
-            ThrowIfFaulted();
-
-            if (!_initialized)
-            {
-                var startupCompletionSource = new TaskCompletionSource<object?>(
-                    TaskCreationOptions.RunContinuationsAsynchronously);
-                var thread = new Thread(Process)
-                {
-                    IsBackground = true,
-                    Name = CreateThreadName(),
-                };
-
-                ConfigureThread(thread);
-
-                _workerThread = thread;
-                _startupTask = startupCompletionSource.Task;
-                _initialized = true;
-                thread.Start(startupCompletionSource);
-            }
-
-            startupTask = _startupTask!;
-        }
-
-#pragma warning disable VSTHRD002
-        startupTask.GetAwaiter().GetResult();
-#pragma warning restore VSTHRD002
+        return _channel.Writer.TryComplete(exception);
     }
 
-    private void Process(object? state)
+    internal void Process(object? state)
     {
         if (state is not TaskCompletionSource<object?> startupCompletionSource)
         {
@@ -210,6 +181,78 @@ public sealed class ExecutionWorker<TSession> : IDisposable
             FailPendingItems(fatalException ?? new ObjectDisposedException(nameof(ExecutionWorker<>)));
             _workerCancellationTokenSource.Dispose();
         }
+    }
+
+    internal void ThrowIfFaulted()
+    {
+        ExceptionDispatchInfo? fatalFailure;
+        lock (_syncRoot)
+        {
+            fatalFailure = _fatalFailure;
+        }
+
+        if (fatalFailure is null)
+        {
+            return;
+        }
+
+#if NET8_0_OR_GREATER
+        throw fatalFailure.SourceException;
+#else
+        fatalFailure.Throw();
+#endif
+    }
+
+    internal void SetFatalFailure(ExceptionDispatchInfo fatalFailure)
+    {
+        lock (_syncRoot)
+        {
+            _fatalFailure = fatalFailure;
+        }
+    }
+
+    internal void SetWorkerThreadForTesting(Thread? workerThread)
+    {
+        lock (_syncRoot)
+        {
+            _workerThread = workerThread;
+        }
+    }
+
+    private void EnsureInitialized()
+    {
+        Task startupTask;
+        lock (_syncRoot)
+        {
+            ThrowIfDisposed();
+            ThrowIfFaulted();
+
+            if (!_initialized)
+            {
+                var startupCompletionSource = new TaskCompletionSource<object?>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                var thread = new Thread(Process)
+                {
+                    IsBackground = true,
+                    Name = CreateThreadName(),
+                };
+
+                ConfigureThread(thread);
+
+                _workerThread = thread;
+                _startupTask = startupCompletionSource.Task;
+                _initialized = true;
+                thread.Start(startupCompletionSource);
+            }
+
+            startupTask = _startupTask!;
+        }
+
+        // Safe: this is a one-time synchronous handoff to the dedicated worker thread, so waiting here
+        // preserves the synchronous initialization contract without blocking a captured UI/request context.
+#pragma warning disable VSTHRD002
+        startupTask.GetAwaiter().GetResult();
+#pragma warning restore VSTHRD002
     }
 
     private void ProcessChannel()
@@ -278,6 +321,8 @@ public sealed class ExecutionWorker<TSession> : IDisposable
 
     private bool WaitToRead()
     {
+        // Safe: this code runs on the dedicated worker thread, where blocking is the intended execution
+        // model while bridging Channel's async API into a synchronous processing loop.
 #pragma warning disable VSTHRD002
         return _channel.Reader.WaitToReadAsync(_workerCancellationTokenSource.Token)
             .AsTask()
@@ -326,22 +371,6 @@ public sealed class ExecutionWorker<TSession> : IDisposable
         if (Volatile.Read(ref _disposeState) != 0)
         {
             throw new ObjectDisposedException(nameof(ExecutionWorker<>));
-        }
-    }
-
-    private void ThrowIfFaulted()
-    {
-        lock (_syncRoot)
-        {
-            _fatalFailure?.Throw();
-        }
-    }
-
-    private void SetFatalFailure(ExceptionDispatchInfo fatalFailure)
-    {
-        lock (_syncRoot)
-        {
-            _fatalFailure = fatalFailure;
         }
     }
 

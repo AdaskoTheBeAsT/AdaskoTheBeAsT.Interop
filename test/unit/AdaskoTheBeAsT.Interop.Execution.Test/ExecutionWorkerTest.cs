@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Runtime.ExceptionServices;
 using AwesomeAssertions;
 using Xunit;
 
@@ -6,6 +7,40 @@ namespace AdaskoTheBeAsT.Interop.Execution.Test;
 
 public sealed class ExecutionWorkerTest
 {
+    [Fact]
+    public void Constructor_ShouldThrowWhenSessionFactoryIsNull()
+    {
+        IExecutionSessionFactory<TestSession>? sessionFactory = null;
+        Action action = () =>
+        {
+            using var ignored = new ExecutionWorker<TestSession>(sessionFactory!);
+        };
+
+        action.Should().Throw<ArgumentNullException>().WithParameterName(nameof(sessionFactory));
+    }
+
+    [Fact]
+    public void ExecuteAsync_ShouldThrowWhenActionDelegateIsNull()
+    {
+        var sessionFactory = new TrackingSessionFactory();
+        using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+
+        Action action = () => _ = worker.ExecuteAsync((Action<TestSession, CancellationToken>)null!, cancellationToken: CancellationToken.None);
+
+        action.Should().Throw<ArgumentNullException>().WithParameterName(nameof(action));
+    }
+
+    [Fact]
+    public void ExecuteAsyncOfTResult_ShouldThrowWhenActionDelegateIsNull()
+    {
+        var sessionFactory = new TrackingSessionFactory();
+        using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+
+        Action action = () => _ = worker.ExecuteAsync<int>((Func<TestSession, CancellationToken, int>)null!, cancellationToken: CancellationToken.None);
+
+        action.Should().Throw<ArgumentNullException>().WithParameterName(nameof(action));
+    }
+
     [Fact]
     public async Task ExecuteAsync_ShouldExecuteActionDelegateAsync()
     {
@@ -20,6 +55,20 @@ public sealed class ExecutionWorkerTest
         executedSessionIds.Should().ContainSingle();
         executedSessionIds.Single().Should().Be(1);
         sessionFactory.CreateCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ShouldReturnFaultedTaskWhenTheChannelRejectsWorkAsync()
+    {
+        var sessionFactory = new TrackingSessionFactory();
+        using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+        worker.TryCompleteChannelForTesting().Should().BeTrue();
+
+        Func<Task> action = async () => await worker.ExecuteAsync(
+            static (session, _) => session.SessionId,
+            cancellationToken: CancellationToken.None);
+
+        await action.Should().ThrowAsync<ObjectDisposedException>();
     }
 
     [Fact]
@@ -78,6 +127,36 @@ public sealed class ExecutionWorkerTest
         await WaitForCompletionAsync(task);
         task.IsCanceled.Should().BeTrue();
         sessionFactory.CreateCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ShouldThrowWhenSessionFactoryReturnsNullAsync()
+    {
+        using var worker = new ExecutionWorker<TestSession>(new NullSessionFactory());
+        Func<Task> action = async () => await worker.ExecuteAsync(
+            static (session, _) => session.SessionId,
+            cancellationToken: CancellationToken.None);
+
+        await action.Should().ThrowAsync<InvalidOperationException>().WithMessage("The session factory returned null.");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ShouldRunOnStaThreadWhenRequestedOnWindowsAsync()
+    {
+        if (Environment.OSVersion.Platform != PlatformID.Win32NT)
+        {
+            return;
+        }
+
+        var sessionFactory = new TrackingSessionFactory();
+        var options = new ExecutionWorkerOptions(useStaThread: true);
+
+        using var worker = new ExecutionWorker<TestSession>(sessionFactory, options);
+        var apartmentState = await worker.ExecuteAsync(
+            static (_, _) => Thread.CurrentThread.GetApartmentState(),
+            cancellationToken: CancellationToken.None);
+
+        apartmentState.Should().Be(ApartmentState.STA);
     }
 
     [Fact]
@@ -248,6 +327,43 @@ public sealed class ExecutionWorkerTest
     }
 
     [Fact]
+    public void Process_ShouldThrowForInvalidStartupState()
+    {
+        var sessionFactory = new TrackingSessionFactory();
+        using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+        var state = new object();
+
+        Action action = () => worker.Process(state);
+
+        action.Should().Throw<ArgumentException>()
+            .WithMessage("Invalid worker startup state.*")
+            .WithParameterName(nameof(state));
+    }
+
+    [Fact]
+    public void ThrowIfFaulted_ShouldNotThrowWhenTheWorkerIsHealthy()
+    {
+        var sessionFactory = new TrackingSessionFactory();
+        using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+
+        Action action = worker.ThrowIfFaulted;
+
+        action.Should().NotThrow();
+    }
+
+    [Fact]
+    public void ThrowIfFaulted_ShouldThrowRecordedFatalFailure()
+    {
+        var sessionFactory = new TrackingSessionFactory();
+        using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+        SetFatalFailure(worker, new InvalidOperationException("fatal boom"));
+
+        Action action = worker.ThrowIfFaulted;
+
+        action.Should().Throw<InvalidOperationException>().WithMessage("fatal boom");
+    }
+
+    [Fact]
     public async Task Dispose_ShouldDrainQueuedRequestsBeforeShutdownAsync()
     {
         var sessionFactory = new TrackingSessionFactory();
@@ -288,6 +404,108 @@ public sealed class ExecutionWorkerTest
         }
     }
 
+    [Fact]
+    public async Task Dispose_ShouldReturnWhenCalledFromTheWorkerThreadAsync()
+    {
+        var sessionFactory = new TrackingSessionFactory();
+        using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+        var task = worker.ExecuteAsync(
+            (session, _) =>
+            {
+                worker.Dispose();
+                return session.SessionId;
+            },
+            cancellationToken: CancellationToken.None);
+
+        (await task).Should().Be(1);
+        await WaitUntilAsync(() => sessionFactory.DisposeCount == 1);
+
+        Action action = () => _ = worker.ExecuteAsync(
+            static (session, _) => session.SessionId,
+            cancellationToken: CancellationToken.None);
+
+        action.Should().Throw<ObjectDisposedException>();
+    }
+
+    [Fact]
+    public async Task Dispose_ShouldIgnoreSessionDisposeFailuresDuringWorkerShutdownAsync()
+    {
+        var sessionFactory = new TrackingSessionFactory(new InvalidOperationException("dispose boom"));
+        using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+        _ = await worker.ExecuteAsync(
+            static (session, _) => session.SessionId,
+            cancellationToken: CancellationToken.None);
+
+        Action action = worker.Dispose;
+
+        action.Should().NotThrow();
+        sessionFactory.DisposeCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ShouldFailPendingRequestsWhenWorkerShutdownFaultsAsync()
+    {
+        var sessionFactory = new TrackingSessionFactory(new InvalidOperationException("dispose boom"));
+        var enteredFirstAction = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var queuedCancellationTokenSource = new CancellationTokenSource();
+        using var releaseFirstAction = new ManualResetEventSlim();
+        using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+
+        var firstTask = worker.ExecuteAsync<int>(
+            (_, cancellationToken) =>
+            {
+                enteredFirstAction.TrySetResult(null);
+                releaseFirstAction.Wait(cancellationToken);
+                throw new InvalidOperationException("boom");
+            },
+            new ExecutionRequestOptions(recycleSessionOnFailure: true),
+            CancellationToken.None);
+
+        await enteredFirstAction.Task;
+
+        var secondTask = worker.ExecuteAsync(
+            static (session, _) => session.SessionId,
+            cancellationToken: CancellationToken.None);
+        var thirdTask = worker.ExecuteAsync(
+            static (session, _) => session.SessionId,
+            cancellationToken: queuedCancellationTokenSource.Token);
+
+        await CancelAsync(queuedCancellationTokenSource);
+        releaseFirstAction.Set();
+
+        await WaitForCompletionAsync(firstTask);
+        await WaitForCompletionAsync(secondTask);
+        await WaitForCompletionAsync(thirdTask);
+
+        firstTask.IsFaulted.Should().BeTrue();
+        firstTask.Exception.Should().NotBeNull();
+        firstTask.Exception!.GetBaseException().Should().BeOfType<InvalidOperationException>().Which.Message.Should().Be("boom");
+        secondTask.IsFaulted.Should().BeTrue();
+        secondTask.Exception.Should().NotBeNull();
+        secondTask.Exception!.GetBaseException().Should().BeOfType<InvalidOperationException>().Which.Message.Should().Be("dispose boom");
+        thirdTask.IsCanceled.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ShouldRethrowFatalFailureAfterTheWorkerFaultsAsync()
+    {
+        var sessionFactory = new TrackingSessionFactory(new InvalidOperationException("dispose boom"));
+        using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+        Func<Task> action = async () => await worker.ExecuteAsync<int>(
+            static (_, _) => throw new InvalidOperationException("boom"),
+            new ExecutionRequestOptions(recycleSessionOnFailure: true),
+            CancellationToken.None);
+
+        await action.Should().ThrowAsync<InvalidOperationException>().WithMessage("boom");
+        await WaitUntilAsync(() => sessionFactory.DisposeCount == 1);
+
+        Action followUpAction = () => _ = worker.ExecuteAsync(
+            static (session, _) => session.SessionId,
+            cancellationToken: CancellationToken.None);
+
+        followUpAction.Should().Throw<InvalidOperationException>().WithMessage("dispose boom");
+    }
+
     private static Task CancelAsync(CancellationTokenSource cancellationTokenSource)
     {
 #if NET8_0_OR_GREATER
@@ -308,8 +526,26 @@ public sealed class ExecutionWorkerTest
         task.IsCompleted.Should().BeTrue();
     }
 
-    private sealed class TrackingSessionFactory : IExecutionSessionFactory<TestSession>
+    private static async Task WaitUntilAsync(Func<bool> predicate)
     {
+        var condition = predicate ?? throw new ArgumentNullException(nameof(predicate));
+
+        for (var attempt = 0; attempt < 500 && !condition(); attempt++)
+        {
+            await Task.Delay(10, CancellationToken.None);
+        }
+
+        condition().Should().BeTrue();
+    }
+
+    private static void SetFatalFailure(ExecutionWorker<TestSession> worker, Exception exception)
+    {
+        worker.SetFatalFailure(ExceptionDispatchInfo.Capture(exception));
+    }
+
+    private sealed class TrackingSessionFactory(Exception? disposeException = null) : IExecutionSessionFactory<TestSession>
+    {
+        private readonly Exception? _disposeException = disposeException;
         private int _createCount;
         private int _disposeCount;
 
@@ -329,6 +565,11 @@ public sealed class ExecutionWorkerTest
         {
             _ = session ?? throw new ArgumentNullException(nameof(session));
             Interlocked.Increment(ref _disposeCount);
+
+            if (_disposeException is not null)
+            {
+                throw _disposeException;
+            }
         }
     }
 
@@ -343,6 +584,20 @@ public sealed class ExecutionWorkerTest
             cancellationToken.ThrowIfCancellationRequested();
             Interlocked.Increment(ref _createCount);
             throw exception;
+        }
+
+        public void DisposeSession(TestSession session)
+        {
+            _ = session ?? throw new ArgumentNullException(nameof(session));
+        }
+    }
+
+    private sealed class NullSessionFactory : IExecutionSessionFactory<TestSession>
+    {
+        public TestSession CreateSession(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return null!;
         }
 
         public void DisposeSession(TestSession session)

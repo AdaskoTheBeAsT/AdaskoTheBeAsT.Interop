@@ -278,10 +278,10 @@ public sealed class ExecutionWorker<TSession> : IDisposable
         {
             var session = EnsureSessionCreated(workItem.CancellationToken);
             workItem.Execute(session);
-            _operationsProcessed++;
+            var operationsProcessed = Interlocked.Increment(ref _operationsProcessed);
 
             if (_options.MaxOperationsPerSession > 0 &&
-                _operationsProcessed >= _options.MaxOperationsPerSession)
+                operationsProcessed >= _options.MaxOperationsPerSession)
             {
                 DisposeSession();
             }
@@ -303,9 +303,10 @@ public sealed class ExecutionWorker<TSession> : IDisposable
 
     private TSession EnsureSessionCreated(CancellationToken cancellationToken)
     {
-        if (_session is not null)
+        var existingSession = Volatile.Read(ref _session);
+        if (existingSession is not null)
         {
-            return _session;
+            return existingSession;
         }
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -313,8 +314,8 @@ public sealed class ExecutionWorker<TSession> : IDisposable
         var createdSession = _sessionFactory.CreateSession(cancellationToken)
             ?? throw new InvalidOperationException("The session factory returned null.");
 
-        _session = createdSession;
-        _operationsProcessed = 0;
+        Volatile.Write(ref _session, createdSession);
+        Interlocked.Exchange(ref _operationsProcessed, 0);
 
         return createdSession;
     }
@@ -376,14 +377,14 @@ public sealed class ExecutionWorker<TSession> : IDisposable
 
     private void DisposeSession()
     {
-        var session = _session;
+        var session = Volatile.Read(ref _session);
         if (session is null)
         {
             return;
         }
 
-        _session = null;
-        _operationsProcessed = 0;
+        Volatile.Write(ref _session, null);
+        Interlocked.Exchange(ref _operationsProcessed, 0);
         _sessionFactory.DisposeSession(session);
     }
 

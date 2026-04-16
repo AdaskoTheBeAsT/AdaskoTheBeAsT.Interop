@@ -71,7 +71,9 @@ public sealed class ExecutionWorkerPool<TSession> : IDisposable
         }
     }
 
+#pragma warning disable RCS1158
     internal static void TryIgnore(Action action)
+#pragma warning restore RCS1158
     {
         var safeAction = action ?? throw new ArgumentNullException(nameof(action));
 

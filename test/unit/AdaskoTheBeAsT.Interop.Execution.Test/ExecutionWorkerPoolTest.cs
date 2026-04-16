@@ -9,8 +9,8 @@ public sealed class ExecutionWorkerPoolTest
     [Fact]
     public void Constructor_ShouldThrowWhenSessionFactoryFactoryIsNull()
     {
-        Func<int, IExecutionSessionFactory<PoolSession>>? sessionFactoryFactory = null;
-        Action action = () =>
+        const Func<int, IExecutionSessionFactory<PoolSession>>? sessionFactoryFactory = null;
+        var action = () =>
         {
             using var ignored = new ExecutionWorkerPool<PoolSession>(sessionFactoryFactory!, new ExecutionWorkerPoolOptions(1));
         };
@@ -21,8 +21,8 @@ public sealed class ExecutionWorkerPoolTest
     [Fact]
     public void Constructor_ShouldThrowWhenOptionsAreNull()
     {
-        ExecutionWorkerPoolOptions? options = null;
-        Action action = () =>
+        const ExecutionWorkerPoolOptions? options = null;
+        var action = () =>
         {
             using var ignored = new ExecutionWorkerPool<PoolSession>(
                 static workerIndex => throw new InvalidOperationException(workerIndex.ToString(System.Globalization.CultureInfo.InvariantCulture)),
@@ -35,10 +35,12 @@ public sealed class ExecutionWorkerPoolTest
     [Fact]
     public void Constructor_ShouldThrowWhenSessionFactoryFactoryReturnsNull()
     {
-        Func<int, IExecutionSessionFactory<PoolSession>> sessionFactoryFactory = static _ => null!;
-        Action action = () =>
+#pragma warning disable SA1313 // Parameter names should begin with lower-case letter
+        static IExecutionSessionFactory<PoolSession> SessionFactoryFactory(int _) => null!;
+#pragma warning restore SA1313 // Parameter names should begin with lower-case letter
+        var action = () =>
         {
-            using var ignored = new ExecutionWorkerPool<PoolSession>(sessionFactoryFactory, new ExecutionWorkerPoolOptions(1));
+            using var ignored = new ExecutionWorkerPool<PoolSession>(SessionFactoryFactory, new ExecutionWorkerPoolOptions(1));
         };
 
         action.Should().Throw<InvalidOperationException>().WithMessage("The session factory factory returned null.");
@@ -139,7 +141,7 @@ public sealed class ExecutionWorkerPoolTest
             workerIndex => new IndexedTrackingSessionFactory(workerIndex, tracker, failOnCreate: workerIndex == 1),
             new ExecutionWorkerPoolOptions(3, "Execution Worker Pool"));
 
-        Action action = workerPool.Initialize;
+        var action = workerPool.Initialize;
 
         action.Should().Throw<InvalidOperationException>().WithMessage("boom");
         tracker.GetCreateCount(0).Should().Be(1);
@@ -205,7 +207,7 @@ public sealed class ExecutionWorkerPoolTest
                 onCreate: workerIndex == 1 ? () => PoisonFirstWorkerThread(workerPool!) : null),
             new ExecutionWorkerPoolOptions(2, "Execution Worker Pool"));
 
-        Action action = workerPool.Initialize;
+        var action = workerPool.Initialize;
 
         action.Should().Throw<InvalidOperationException>().WithMessage("boom");
         tracker.GetCreateCount(0).Should().Be(1);
@@ -230,8 +232,8 @@ public sealed class ExecutionWorkerPoolTest
     [Fact]
     public void TryIgnore_ShouldThrowWhenActionIsNull()
     {
-        Action? action = null;
-        Action assertion = () => ExecutionWorkerPool<PoolSession>.TryIgnore(action!);
+        const Action? action = null;
+        var assertion = () => ExecutionWorkerPool<PoolSession>.TryIgnore(action!);
 
         assertion.Should().Throw<ArgumentNullException>().WithParameterName(nameof(action));
     }

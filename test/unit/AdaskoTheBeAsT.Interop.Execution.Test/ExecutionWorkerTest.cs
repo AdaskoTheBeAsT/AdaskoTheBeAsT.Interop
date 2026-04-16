@@ -10,8 +10,8 @@ public sealed class ExecutionWorkerTest
     [Fact]
     public void Constructor_ShouldThrowWhenSessionFactoryIsNull()
     {
-        IExecutionSessionFactory<TestSession>? sessionFactory = null;
-        Action action = () =>
+        const IExecutionSessionFactory<TestSession>? sessionFactory = null;
+        var action = () =>
         {
             using var ignored = new ExecutionWorker<TestSession>(sessionFactory!);
         };
@@ -314,7 +314,7 @@ public sealed class ExecutionWorkerTest
         var sessionFactory = new FaultingSessionFactory(new InvalidOperationException("boom"));
 
         using var worker = new ExecutionWorker<TestSession>(sessionFactory);
-        Action initialize = worker.Initialize;
+        var initialize = worker.Initialize;
         initialize.Should().Throw<InvalidOperationException>().WithMessage("boom");
         initialize.Should().Throw<InvalidOperationException>().WithMessage("boom");
 
@@ -333,7 +333,7 @@ public sealed class ExecutionWorkerTest
         using var worker = new ExecutionWorker<TestSession>(sessionFactory);
         var state = new object();
 
-        Action action = () => worker.Process(state);
+        var action = () => worker.Process(state);
 
         action.Should().Throw<ArgumentException>()
             .WithMessage("Invalid worker startup state.*")
@@ -346,7 +346,7 @@ public sealed class ExecutionWorkerTest
         var sessionFactory = new TrackingSessionFactory();
         using var worker = new ExecutionWorker<TestSession>(sessionFactory);
 
-        Action action = worker.ThrowIfFaulted;
+        var action = worker.ThrowIfFaulted;
 
         action.Should().NotThrow();
     }
@@ -358,7 +358,7 @@ public sealed class ExecutionWorkerTest
         using var worker = new ExecutionWorker<TestSession>(sessionFactory);
         SetFatalFailure(worker, new InvalidOperationException("fatal boom"));
 
-        Action action = worker.ThrowIfFaulted;
+        var action = worker.ThrowIfFaulted;
 
         action.Should().Throw<InvalidOperationException>().WithMessage("fatal boom");
     }
@@ -436,7 +436,7 @@ public sealed class ExecutionWorkerTest
             static (session, _) => session.SessionId,
             cancellationToken: CancellationToken.None);
 
-        Action action = worker.Dispose;
+        var action = worker.Dispose;
 
         action.Should().NotThrow();
         sessionFactory.DisposeCount.Should().Be(1);

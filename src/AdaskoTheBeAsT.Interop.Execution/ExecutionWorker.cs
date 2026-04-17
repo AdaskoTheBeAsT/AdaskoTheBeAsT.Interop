@@ -344,6 +344,12 @@ public sealed class ExecutionWorker<TSession> : IDisposable
 #pragma warning restore CA1416
     }
 
+    [SupportedOSPlatform("windows")]
+    private void SetAppartmentStateSta(Thread thread)
+    {
+        thread.SetApartmentState(ApartmentState.STA);
+    }
+
     private string CreateThreadName()
     {
         var name = _options.Name;

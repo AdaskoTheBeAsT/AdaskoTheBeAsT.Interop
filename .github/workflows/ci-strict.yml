@@ -1,0 +1,50 @@
+name: CI Strict Build
+
+# Phase 0 / Phase 1 guardrail: forces a non-incremental build and an explicit
+# rebuild so regressions hidden by incremental caching (e.g. the CS0120/CS0246
+# class of issues called out in findings.md, item 3) cannot slip through.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  no-incremental:
+    name: Non-incremental build
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET from global.json
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore AdaskoTheBeAsT.Interop.slnx
+
+      - name: Build (no incremental, warnings as errors)
+        run: dotnet build AdaskoTheBeAsT.Interop.slnx --no-incremental --no-restore -c Release -p:TreatWarningsAsErrors=true
+
+  ci-rebuild:
+    name: CI rebuild
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET from global.json
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore AdaskoTheBeAsT.Interop.slnx
+
+      - name: Build (ContinuousIntegrationBuild + Rebuild)
+        run: dotnet build AdaskoTheBeAsT.Interop.slnx --no-restore -c Release -t:Rebuild -p:ContinuousIntegrationBuild=true -p:TreatWarningsAsErrors=true

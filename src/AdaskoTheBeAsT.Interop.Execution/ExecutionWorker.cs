@@ -44,6 +44,17 @@ public sealed class ExecutionWorker<TSession> : IDisposable
         EnsureInitialized();
     }
 
+    public Task InitializeAsync(CancellationToken cancellationToken = default)
+    {
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return Task.FromCanceled(cancellationToken);
+        }
+
+        var startupTask = EnsureStartedLockedAsync();
+        return ExecutionHelpers.WaitForStartupAsync(startupTask, cancellationToken);
+    }
+
     public Task ExecuteAsync(
         Action<TSession, CancellationToken> action,
         ExecutionRequestOptions? options = null,
@@ -221,7 +232,21 @@ public sealed class ExecutionWorker<TSession> : IDisposable
 
     private void EnsureInitialized()
     {
-        Task startupTask;
+        var startupTask = EnsureStartedLockedAsync();
+
+        // Safe to block here (VSTHRD002 disabled): the startup TaskCompletionSource is created with
+        // RunContinuationsAsynchronously and the worker runs on a bare Thread, so no caller
+        // SynchronizationContext is captured and no sync-over-async deadlock is possible. The wait is
+        // a one-time synchronous handoff to the dedicated worker thread and preserves the synchronous
+        // Initialize() contract for legacy (non-cancellable) callers. Async-aware callers should use
+        // InitializeAsync(CancellationToken) instead.
+#pragma warning disable VSTHRD002
+        startupTask.GetAwaiter().GetResult();
+#pragma warning restore VSTHRD002
+    }
+
+    private Task EnsureStartedLockedAsync()
+    {
         lock (_syncRoot)
         {
             ThrowIfDisposed();
@@ -245,14 +270,8 @@ public sealed class ExecutionWorker<TSession> : IDisposable
                 thread.Start(startupCompletionSource);
             }
 
-            startupTask = _startupTask!;
+            return _startupTask!;
         }
-
-        // Safe: this is a one-time synchronous handoff to the dedicated worker thread, so waiting here
-        // preserves the synchronous initialization contract without blocking a captured UI/request context.
-#pragma warning disable VSTHRD002
-        startupTask.GetAwaiter().GetResult();
-#pragma warning restore VSTHRD002
     }
 
     private void ProcessChannel()
@@ -322,8 +341,11 @@ public sealed class ExecutionWorker<TSession> : IDisposable
 
     private bool WaitToRead()
     {
-        // Safe: this code runs on the dedicated worker thread, where blocking is the intended execution
-        // model while bridging Channel's async API into a synchronous processing loop.
+        // Safe to block here (VSTHRD002 disabled): this code runs exclusively on the dedicated worker
+        // Thread (see Process / EnsureStartedLocked), where synchronous blocking is the intended
+        // execution model. The worker thread has no captured SynchronizationContext, so bridging the
+        // async Channel reader into a synchronous processing loop cannot deadlock. Cancellation is
+        // honored via _workerCancellationTokenSource which Dispose() signals on shutdown.
 #pragma warning disable VSTHRD002
         return _channel.Reader.WaitToReadAsync(_workerCancellationTokenSource.Token)
             .AsTask()

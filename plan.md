@@ -2,21 +2,23 @@
 
 Derived from `findings.md`. Phased so each stage unblocks the next: build hygiene first (so nothing slips through), then production API changes, then tests, then CI/docs/repo.
 
-## Phase 0 — Baseline & safety nets (prep)
+## Phase 0 — Baseline & safety nets (prep) — ✅ done
 
-- Create a working branch `chore/findings-hardening`.
-- Snapshot current analyzer warning counts (`dotnet build -p:TreatWarningsAsErrors=false /p:ReportAnalyzer=true`) so regressions are measurable.
-- Enable `--no-incremental` builds in CI to expose hidden errors (finding 3).
+- ✅ Branch `chore/findings-hardening` created.
+- ✅ Baseline snapshot saved to `baseline/summary.md` (raw `build.log` git-ignored). First strict build failed with 40 CS0246 errors in `ExecutionWorker.cs` (hidden CS0120 regression as finding 3 predicted).
+- ✅ Strict + deterministic builds wired into CI via the reusable workflow in `AdaskoTheBeAsT/github-actions` (`strict_build` / `deterministic_build` inputs). Local `ci-strict.yml` removed after release.
 
-## Phase 1 — Build hygiene (finding 3)
+## Phase 1 — Build hygiene (finding 3) — ✅ done
 
 Goal: no suppressed compiler errors, no pragma hacks, CI catches what local caching hid.
 
-1. Grep for and remove `#pragma warning disable CS0120` and `CA1416` across `src/` and replace with proper fixes.
-2. Introduce `ExecutionHelpers.TryIgnore(Action)` (non-generic, internal static class) and delete the existing generic `TryIgnore` / RCS1158 suppression.
-3. In `AdaskoTheBeAsT.ruleset` (the single source of truth for analyzer severity — wired globally via `Directory.Build.props` / `<CodeAnalysisRuleset>`), promote `CA1512`, `IDE0039`, `CC0030`, `RCS1158` to `Warning` (`CC0030` and `RCS1158` are already `Warning` — just add the missing `CA1512` and `IDE0039` entries under their respective `AnalyzerId` blocks). Since CI runs with `TreatWarningsAsErrors=true`, `Warning` effectively becomes a build break there. Then fix all call sites.
+1. ✅ Removed `#pragma warning disable CS0120` and `#pragma warning disable CA1416` from `ExecutionWorker.cs`; STA path now uses `OperatingSystem.IsWindows()` on `NET5_0_OR_GREATER` (recognised platform guard) with the `Environment.OSVersion.Platform` fallback on netstandard2.0 / netfx.
+2. ✅ Introduced non-generic `ExecutionHelpers.TryIgnore(Action)` in `ExecutionHelpers.cs`; removed the generic-nested `TryIgnore` + `RCS1158` suppression from `ExecutionWorkerPool`.
+3. ✅ `AdaskoTheBeAsT.ruleset` updated: added `CA1512` (Warning) under `Microsoft.NetCore.Analyzers` and `IDE0039` (Warning) under `Microsoft.CodeAnalysis.CSharp`. `CC0030` and `RCS1158` were already `Warning`. CA1512 call sites in `ExecutionWorkerOptions` / `ExecutionWorkerPoolOptions` fixed with `ArgumentOutOfRangeException.ThrowIf*` on net8+, manual throw on older TFMs.
 
-> **Out of scope:** CI workflow edits (`--no-incremental`, `-p:ContinuousIntegrationBuild=true`, `-t:Rebuild`) are already covered by the reusable workflow in `AdaskoTheBeAsT/github-actions` via the new `strict_build` / `deterministic_build` inputs — no changes needed in this repo.
+**Verification**: `dotnet build --no-incremental -t:Rebuild -p:TreatWarningsAsErrors=true -p:ContinuousIntegrationBuild=true` → 0 errors, 0 warnings across all 9 TFMs. `dotnet test` → 38/38 green per TFM.
+
+> **Out of scope:** CI workflow edits (`--no-incremental`, `-p:ContinuousIntegrationBuild=true`, `-t:Rebuild`) are already covered by the reusable workflow in `AdaskoTheBeAsT/github-actions` via the `strict_build` / `deterministic_build` inputs — no changes needed in this repo.
 >
 > **Also out of scope:** pre-commit hook via `husky.net` + `dotnet format --verify-no-changes` — the `dotnet format` conventions conflict with the project's established style. Will rely on `TreatWarningsAsErrors=true` in CI + the ruleset severities above to enforce quality.
 
@@ -24,7 +26,11 @@ Goal: no suppressed compiler errors, no pragma hacks, CI catches what local cach
 
 Refactor `ExecutionWorker.cs` / `ExecutionWorkerPool.cs`:
 
-1. **`Initialize(CancellationToken)`**: add CT overload; honor cancellation before thread spin-up, clean up on `OperationCanceledException`.
+1. **Async init with cancellation** — ✅ done
+   - Added `public Task InitializeAsync(CancellationToken)` to `ExecutionWorker` alongside the existing sync `Initialize()` (add-alongside, non-breaking).
+   - Shared private helper `EnsureStartedLockedAsync()` holds the lock and spawns the `Thread`; `Initialize()` blocks on the resulting `Task` via `GetAwaiter().GetResult()` (safe — bare `Thread`, no captured `SynchronizationContext`, TCS built with `RunContinuationsAsynchronously`); `InitializeAsync` uses `Task.WaitAsync(CancellationToken)` on net6+ and a `Task.WhenAny` polyfill on older TFMs (lives in `ExecutionHelpers.WaitForStartupAsync`).
+   - `ExecutionWorkerPool` got a matching `InitializeAsync(CancellationToken)` and `Initialize()` was rewritten to use **parallel startup** (`Task.WhenAll` / `Task.WaitAll`) — reduces pool startup time from O(N·t) to O(t). The failing unit test was updated to gate worker 1's factory throw behind `ManualResetEventSlim` barriers so assertions remain deterministic under parallel init.
+   - Every surviving `#pragma warning disable` (VSTHRD002 × 2, VSTHRD003 × 2) carries a multi-line comment justifying why the construct is safe in this context.
 2. **`IAsyncDisposable`**: implement `DisposeAsync()` that completes the channel, awaits a `TaskCompletionSource` the worker signals on exit (replacing `Thread.Join`). Keep sync `Dispose()` as a thin wrapper using `GetAwaiter().GetResult()` with a timeout guard.
 3. **Observability surface**:
    - `public bool IsFaulted { get; }` (reads `_fatalFailure` via `Volatile.Read`).
@@ -36,7 +42,7 @@ Refactor `ExecutionWorker.cs` / `ExecutionWorkerPool.cs`:
    - Mark `_initialized` and `_fatalFailure` with `Volatile.Read/Write` or migrate all access under `_syncRoot`.
    - Document worker as terminal once `_fatalFailure` is set (no re-init path) — simplest and safest, matches finding 2 option.
 7. **Cross-target** (finding 6):
-   - Annotate STA code with `[SupportedOSPlatform("windows")]`, drop `CA1416` pragma.
+   - STA path already migrated to `OperatingSystem.IsWindows()` in Phase 1 — `CA1416` pragma gone, no `[SupportedOSPlatform]` polyfill needed for netfx.
    - Drop `System.Threading.Channels` NuGet on `net8.0`+; keep only for netstandard / netfx TFMs.
 
 ## Phase 3 — API ergonomics (finding 5)
@@ -91,9 +97,9 @@ Refactor `ExecutionWorker.cs` / `ExecutionWorkerPool.cs`:
 
 To keep reviews manageable, ship as a sequence of PRs:
 
-1. **PR-1**: Build hygiene — remove `#pragma warning disable CS0120` / `CA1416`, introduce `ExecutionHelpers.TryIgnore`, add `CA1512` + `IDE0039` to the ruleset as `Warning`, fix all resulting diagnostics. (CI flags live in the reusable workflow; no husky / dotnet format hook.)
-2. **PR-2**: `ExecutionWorker` correctness (CT, `IAsyncDisposable`, `IsFaulted`, events, telemetry).
-3. **PR-3**: Pool least-queued scheduling + STA / CA1416 cleanup + Channels package trim.
+1. **PR-1** ✅ merged in spirit on `chore/findings-hardening`: Build hygiene — removed `#pragma warning disable CS0120` / `CA1416`, introduced `ExecutionHelpers.TryIgnore`, added `CA1512` + `IDE0039` to the ruleset as `Warning`, fixed all resulting diagnostics. Also added `InitializeAsync(CancellationToken)` to worker + pool and parallelised pool startup (preview of PR-2 / PR-3 work; landed early because it shared the same refactor window). CI flags live in the reusable workflow; no husky / dotnet format hook.
+2. **PR-2**: `ExecutionWorker` correctness — remaining Phase 2 items: `IAsyncDisposable`, `IsFaulted`, `WorkerFaulted` event, `PendingCount`, thread-safety audit (`Volatile.Read/Write` on `_initialized` / `_fatalFailure`), telemetry via `ActivitySource` / `Meter`.
+3. **PR-3**: Pool least-queued scheduling + Channels package trim on net8+. (STA / CA1416 cleanup already landed in PR-1.)
 4. **PR-4**: Interfaces, DI package, XML docs, options binding.
 5. **PR-5**: Remove test hooks, add behavioural / stress tests, add integ + bench projects, Stryker.
 6. **PR-6**: CI matrix (OS + TFM), Dependabot, CodeQL, repo templates, `CHANGELOG`, SPDX.

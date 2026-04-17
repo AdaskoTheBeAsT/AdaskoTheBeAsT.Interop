@@ -28,12 +28,39 @@ public sealed class ExecutionWorkerPool<TSession> : IDisposable
     {
         ThrowIfDisposed();
 
+        var startupTasks = StartAllWorkers(CancellationToken.None);
+
         try
         {
-            foreach (var worker in _workers)
-            {
-                worker.Initialize();
-            }
+            // Safe to block here (VSTHRD002 disabled): each worker's startup Task is signaled from
+            // its own dedicated worker Thread via a RunContinuationsAsynchronously TCS, so no caller
+            // SynchronizationContext is captured and no sync-over-async deadlock is possible.
+            // Task.WaitAll is used instead of a foreach+Wait so all worker sessions are created in
+            // parallel on their respective threads, keeping pool startup time O(max(CreateSession))
+            // rather than O(sum(CreateSession)).
+#pragma warning disable VSTHRD002
+            Task.WaitAll(startupTasks);
+#pragma warning restore VSTHRD002
+        }
+        catch
+        {
+            CleanupFailedInitialization();
+            throw;
+        }
+    }
+
+    public async Task InitializeAsync(CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+
+        var startupTasks = StartAllWorkers(cancellationToken);
+
+        try
+        {
+            // Parallel startup: each worker's CreateSession runs on its own dedicated thread
+            // concurrently, so overall pool init time is O(max(CreateSession)) instead of
+            // O(sum(CreateSession)) as the sequential foreach+await pattern would give.
+            await Task.WhenAll(startupTasks).ConfigureAwait(false);
         }
         catch
         {
@@ -113,6 +140,17 @@ public sealed class ExecutionWorkerPool<TSession> : IDisposable
         }
 
         return string.Format(CultureInfo.InvariantCulture, "{0} #{1}", poolName, workerIndex + 1);
+    }
+
+    private Task[] StartAllWorkers(CancellationToken cancellationToken)
+    {
+        var startupTasks = new Task[_workers.Length];
+        for (var workerIndex = 0; workerIndex < _workers.Length; workerIndex++)
+        {
+            startupTasks[workerIndex] = _workers[workerIndex].InitializeAsync(cancellationToken);
+        }
+
+        return startupTasks;
     }
 
     private ExecutionWorker<TSession> SelectWorker()

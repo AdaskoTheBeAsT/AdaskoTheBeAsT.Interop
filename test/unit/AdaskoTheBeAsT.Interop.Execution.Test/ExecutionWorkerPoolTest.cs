@@ -136,9 +136,34 @@ public sealed class ExecutionWorkerPoolTest
     public void Initialize_ShouldDisposeAlreadyStartedWorkersWhenOneWorkerFailsToStart()
     {
         var tracker = new PoolSessionTracker();
+        using var worker0Started = new ManualResetEventSlim(initialState: false);
+        using var worker2Started = new ManualResetEventSlim(initialState: false);
 
+        // With parallel pool initialization every worker's CreateSession runs on its own dedicated
+        // thread concurrently. Gate worker 1's failure behind worker 0 and worker 2 both having
+        // entered CreateSession, so the resulting CreateCount/DisposeCount observations are
+        // deterministic regardless of OS thread scheduling.
         using var workerPool = new ExecutionWorkerPool<PoolSession>(
-            workerIndex => new IndexedTrackingSessionFactory(workerIndex, tracker, failOnCreate: workerIndex == 1),
+            workerIndex => new IndexedTrackingSessionFactory(
+                workerIndex,
+                tracker,
+                failOnCreate: workerIndex == 1,
+                onCreate: () =>
+                {
+                    if (workerIndex == 0)
+                    {
+                        worker0Started.Set();
+                    }
+                    else if (workerIndex == 2)
+                    {
+                        worker2Started.Set();
+                    }
+                    else if (workerIndex == 1)
+                    {
+                        worker0Started.Wait(TimeSpan.FromSeconds(5));
+                        worker2Started.Wait(TimeSpan.FromSeconds(5));
+                    }
+                }),
             new ExecutionWorkerPoolOptions(3, "Execution Worker Pool"));
 
         var action = workerPool.Initialize;
@@ -148,8 +173,8 @@ public sealed class ExecutionWorkerPoolTest
         tracker.GetDisposeCount(0).Should().Be(1);
         tracker.GetCreateCount(1).Should().Be(1);
         tracker.GetDisposeCount(1).Should().Be(0);
-        tracker.GetCreateCount(2).Should().Be(0);
-        tracker.GetDisposeCount(2).Should().Be(0);
+        tracker.GetCreateCount(2).Should().Be(1);
+        tracker.GetDisposeCount(2).Should().Be(1);
     }
 
     [Fact]

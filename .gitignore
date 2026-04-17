@@ -420,3 +420,6 @@ FodyWeavers.xsd
 ################################################
 
 !coverage.settings.xml
+.sarif/
+!.sarif/.gitkeep
+**/[Tt]est[Rr]esult*/

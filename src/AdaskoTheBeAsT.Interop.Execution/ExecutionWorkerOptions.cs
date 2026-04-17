@@ -7,10 +7,14 @@ public sealed class ExecutionWorkerOptions
         bool useStaThread = false,
         int maxOperationsPerSession = 0)
     {
+#if NET8_0_OR_GREATER
+        ArgumentOutOfRangeException.ThrowIfNegative(maxOperationsPerSession);
+#else
         if (maxOperationsPerSession < 0)
         {
             throw new ArgumentOutOfRangeException(nameof(maxOperationsPerSession));
         }
+#endif
 
         Name = name;
         UseStaThread = useStaThread;

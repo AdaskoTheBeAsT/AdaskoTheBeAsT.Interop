@@ -8,6 +8,10 @@ public sealed class ExecutionWorkerPoolOptions
         bool useStaThread = false,
         int maxOperationsPerSession = 0)
     {
+#if NET8_0_OR_GREATER
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(workerCount);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxOperationsPerSession);
+#else
         if (workerCount <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(workerCount));
@@ -17,6 +21,7 @@ public sealed class ExecutionWorkerPoolOptions
         {
             throw new ArgumentOutOfRangeException(nameof(maxOperationsPerSession));
         }
+#endif
 
         WorkerCount = workerCount;
         Name = name;

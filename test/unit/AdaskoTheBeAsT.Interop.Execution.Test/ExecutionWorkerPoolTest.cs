@@ -233,7 +233,7 @@ public sealed class ExecutionWorkerPoolTest
     public void TryIgnore_ShouldThrowWhenActionIsNull()
     {
         const Action? action = null;
-        var assertion = () => ExecutionWorkerPool<PoolSession>.TryIgnore(action!);
+        var assertion = () => ExecutionHelpers.TryIgnore(action!);
 
         assertion.Should().Throw<ArgumentNullException>().WithParameterName(nameof(action));
     }

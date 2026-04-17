@@ -71,22 +71,6 @@ public sealed class ExecutionWorkerPool<TSession> : IDisposable
         }
     }
 
-#pragma warning disable RCS1158
-    internal static void TryIgnore(Action action)
-#pragma warning restore RCS1158
-    {
-        var safeAction = action ?? throw new ArgumentNullException(nameof(action));
-
-        try
-        {
-            safeAction();
-        }
-        catch (Exception)
-        {
-            GC.KeepAlive(safeAction);
-        }
-    }
-
     internal void MarkDisposedForTesting()
     {
         Interlocked.Exchange(ref _disposeState, 1);
@@ -153,7 +137,7 @@ public sealed class ExecutionWorkerPool<TSession> : IDisposable
 
         foreach (var worker in _workers)
         {
-            TryIgnore(worker.Dispose);
+            ExecutionHelpers.TryIgnore(worker.Dispose);
         }
     }
 }

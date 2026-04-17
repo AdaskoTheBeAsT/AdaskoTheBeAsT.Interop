@@ -334,19 +334,23 @@ public sealed class ExecutionWorker<TSession> : IDisposable
 
     private void ConfigureThread(Thread thread)
     {
-        if (!_options.UseStaThread || Environment.OSVersion.Platform != PlatformID.Win32NT)
+        if (!_options.UseStaThread)
         {
             return;
         }
 
-#pragma warning disable CA1416
-        thread.SetApartmentState(ApartmentState.STA);
-#pragma warning restore CA1416
-    }
+#if NET5_0_OR_GREATER
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+#else
+        if (Environment.OSVersion.Platform != PlatformID.Win32NT)
+        {
+            return;
+        }
+#endif
 
-    [SupportedOSPlatform("windows")]
-    private void SetAppartmentStateSta(Thread thread)
-    {
         thread.SetApartmentState(ApartmentState.STA);
     }
 

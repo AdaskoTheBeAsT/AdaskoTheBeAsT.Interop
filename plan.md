@@ -14,11 +14,11 @@ Goal: no suppressed compiler errors, no pragma hacks, CI catches what local cach
 
 1. Grep for and remove `#pragma warning disable CS0120` and `CA1416` across `src/` and replace with proper fixes.
 2. Introduce `ExecutionHelpers.TryIgnore(Action)` (non-generic, internal static class) and delete the existing generic `TryIgnore` / RCS1158 suppression.
-3. In `.editorconfig`, promote `CA1512`, `IDE0039`, `CC0030`, `RCS1158` from suggestion to warning/error; fix call sites.
-4. Update `.github/workflows/*.yml`:
-   - Add `dotnet build --no-incremental -p:TreatWarningsAsErrors=true`.
-   - Add a separate `dotnet build -p:ContinuousIntegrationBuild=true -t:Rebuild` job step.
-5. Add a pre-commit hook via `husky.net` (already .NET-native): `dotnet format --verify-no-changes` + the non-incremental build.
+3. In `AdaskoTheBeAsT.ruleset` (the single source of truth for analyzer severity — wired globally via `Directory.Build.props` / `<CodeAnalysisRuleset>`), promote `CA1512`, `IDE0039`, `CC0030`, `RCS1158` to `Warning` (`CC0030` and `RCS1158` are already `Warning` — just add the missing `CA1512` and `IDE0039` entries under their respective `AnalyzerId` blocks). Since CI runs with `TreatWarningsAsErrors=true`, `Warning` effectively becomes a build break there. Then fix all call sites.
+
+> **Out of scope:** CI workflow edits (`--no-incremental`, `-p:ContinuousIntegrationBuild=true`, `-t:Rebuild`) are already covered by the reusable workflow in `AdaskoTheBeAsT/github-actions` via the new `strict_build` / `deterministic_build` inputs — no changes needed in this repo.
+>
+> **Also out of scope:** pre-commit hook via `husky.net` + `dotnet format --verify-no-changes` — the `dotnet format` conventions conflict with the project's established style. Will rely on `TreatWarningsAsErrors=true` in CI + the ruleset severities above to enforce quality.
 
 ## Phase 2 — Correctness & thread-safety (findings 1, 2)
 
@@ -91,7 +91,7 @@ Refactor `ExecutionWorker.cs` / `ExecutionWorkerPool.cs`:
 
 To keep reviews manageable, ship as a sequence of PRs:
 
-1. **PR-1**: Build hygiene + analyzer promotions + husky hook.
+1. **PR-1**: Build hygiene — remove `#pragma warning disable CS0120` / `CA1416`, introduce `ExecutionHelpers.TryIgnore`, add `CA1512` + `IDE0039` to the ruleset as `Warning`, fix all resulting diagnostics. (CI flags live in the reusable workflow; no husky / dotnet format hook.)
 2. **PR-2**: `ExecutionWorker` correctness (CT, `IAsyncDisposable`, `IsFaulted`, events, telemetry).
 3. **PR-3**: Pool least-queued scheduling + STA / CA1416 cleanup + Channels package trim.
 4. **PR-4**: Interfaces, DI package, XML docs, options binding.

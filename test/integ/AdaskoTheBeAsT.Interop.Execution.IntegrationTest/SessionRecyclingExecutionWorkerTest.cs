@@ -25,21 +25,22 @@ public sealed class SessionRecyclingExecutionWorkerTest
             observedSessionIds.Add(sessionId);
         }
 
-        var expectedSessionCount = (TotalSubmissions + MaxOperationsPerSession - 1) / MaxOperationsPerSession;
+        const int ExpectedSessionCount = (TotalSubmissions + MaxOperationsPerSession - 1) / MaxOperationsPerSession;
 
         factory.CreateCount.Should().Be(
-            expectedSessionCount,
+            ExpectedSessionCount,
             "a new session must be created after every MaxOperationsPerSession work items");
         factory.DisposeCount.Should().BeGreaterThanOrEqualTo(
-            expectedSessionCount - 1,
+            ExpectedSessionCount - 1,
             "every recycled session must be disposed on the worker thread");
 
-        observedSessionIds.Distinct().Should().HaveCount(expectedSessionCount);
+        observedSessionIds.Distinct().Should().HaveCount(ExpectedSessionCount);
 
         for (var submissionIndex = 0; submissionIndex < TotalSubmissions; submissionIndex++)
         {
             var expectedSessionId = (submissionIndex / MaxOperationsPerSession) + 1;
-            observedSessionIds[submissionIndex].Should().Be(
+            observedSessionIds.Should().HaveElementAt(
+                submissionIndex,
                 expectedSessionId,
                 "submissions within the same batch of MaxOperationsPerSession must share the same session id");
         }

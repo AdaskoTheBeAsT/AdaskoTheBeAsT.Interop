@@ -386,7 +386,7 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
     {
         if (state is not TaskCompletionSource<object?> startupCompletionSource)
         {
-            throw new ArgumentException("Invalid worker startup state.", nameof(state));
+            throw new ArgumentException(message: "Invalid worker startup state.", paramName: nameof(state));
         }
 
         Exception? fatalException = null;
@@ -736,26 +736,18 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
         _sessionFactory.DisposeSession(session);
     }
 
-    private sealed class ExecutionWorkItem<TResult> : IExecutionWorkItem<TSession>
+    private sealed class ExecutionWorkItem<TResult>(
+        Func<TSession, CancellationToken, TResult> action,
+        ExecutionRequestOptions options,
+        CancellationToken cancellationToken) : IExecutionWorkItem<TSession>
     {
-        private readonly Func<TSession, CancellationToken, TResult> _action;
-        private readonly TaskCompletionSource<TResult> _completionSource;
+        private readonly Func<TSession, CancellationToken, TResult> _action = action;
+        private readonly TaskCompletionSource<TResult> _completionSource = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public ExecutionWorkItem(
-            Func<TSession, CancellationToken, TResult> action,
-            ExecutionRequestOptions options,
-            CancellationToken cancellationToken)
-        {
-            _action = action;
-            CancellationToken = cancellationToken;
-            Options = options;
-            _completionSource = new TaskCompletionSource<TResult>(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-        }
+        public CancellationToken CancellationToken { get; } = cancellationToken;
 
-        public CancellationToken CancellationToken { get; }
-
-        public ExecutionRequestOptions Options { get; }
+        public ExecutionRequestOptions Options { get; } = options;
 
         public Task<TResult> Task => _completionSource.Task;
 

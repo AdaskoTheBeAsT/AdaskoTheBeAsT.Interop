@@ -10,20 +10,15 @@ namespace AdaskoTheBeAsT.Interop.Execution.Hosting;
 /// exits.
 /// </summary>
 /// <typeparam name="TSession">The session type exposed to submitted work items.</typeparam>
-public sealed class ExecutionWorkerPoolHostedService<TSession> : IHostedService
+/// <remarks>
+/// Initializes a new instance of the <see cref="ExecutionWorkerPoolHostedService{TSession}"/> class.
+/// </remarks>
+/// <param name="pool">The pool to drive. Must not be <see langword="null"/>.</param>
+/// <exception cref="ArgumentNullException"><paramref name="pool"/> is <see langword="null"/>.</exception>
+public sealed class ExecutionWorkerPoolHostedService<TSession>(IExecutionWorkerPool<TSession> pool) : IHostedService
     where TSession : class
 {
-    private readonly IExecutionWorkerPool<TSession> _pool;
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="ExecutionWorkerPoolHostedService{TSession}"/> class.
-    /// </summary>
-    /// <param name="pool">The pool to drive. Must not be <see langword="null"/>.</param>
-    /// <exception cref="ArgumentNullException"><paramref name="pool"/> is <see langword="null"/>.</exception>
-    public ExecutionWorkerPoolHostedService(IExecutionWorkerPool<TSession> pool)
-    {
-        _pool = pool ?? throw new ArgumentNullException(nameof(pool));
-    }
+    private readonly IExecutionWorkerPool<TSession> _pool = pool ?? throw new ArgumentNullException(nameof(pool));
 
     /// <summary>Starts every worker in the pool concurrently.</summary>
     /// <param name="cancellationToken">Cancellation token forwarded to <c>InitializeAsync</c>.</param>

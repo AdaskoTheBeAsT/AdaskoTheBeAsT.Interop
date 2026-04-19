@@ -20,7 +20,7 @@ public sealed class ZeroAllocValueTaskTest
         // observation, and racing status checks against Execute on the
         // dedicated worker thread would be flaky.
         var result = await worker.ExecuteValueAsync((session, _) => session.SessionId * 2);
-        result.Should().BeGreaterThan(0);
+        result.Should().BePositive();
     }
 
     [Fact]
@@ -62,17 +62,14 @@ public sealed class ZeroAllocValueTaskTest
         var factory = new IntegrationSessionFactory();
         await using var worker = new ExecutionWorker<IntegrationSession>(factory);
 
-        Func<Task> failing = async () =>
-        {
-            _ = await worker.ExecuteValueAsync<int>((_, _) => throw new InvalidOperationException("boom"));
-        };
+        Func<Task> failing = async () => _ = await worker.ExecuteValueAsync<int>((_, _) => throw new InvalidOperationException("boom"));
 
         await failing.Should().ThrowAsync<InvalidOperationException>().WithMessage("boom");
 
         // Subsequent successful submission confirms the pool is healthy after
         // an exceptional Return path.
         var afterFailure = await worker.ExecuteValueAsync((session, _) => session.SessionId);
-        afterFailure.Should().BeGreaterThan(0);
+        afterFailure.Should().BePositive();
     }
 
     [Fact]
@@ -113,7 +110,7 @@ public sealed class ZeroAllocValueTaskTest
         var pending = worker.ExecuteValueAsync((_, _) => 42, cancellationToken: cts.Token);
         pending.IsCanceled.Should().BeTrue();
 
-        Func<Task> awaitCancelled = async () => { _ = await pending; };
+        Func<Task> awaitCancelled = async () => _ = await pending;
         await awaitCancelled.Should().ThrowAsync<OperationCanceledException>();
     }
 }

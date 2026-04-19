@@ -62,8 +62,8 @@ public sealed class MultiThreadedExecutionWorkerTest
 
         var poolOptions = new ExecutionWorkerPoolOptions(
             workerCount: WorkerCount,
-            schedulingStrategy: SchedulingStrategy.LeastQueued,
-            name: "integ-pool");
+            name: "integ-pool",
+            schedulingStrategy: SchedulingStrategy.LeastQueued);
 
         await using var pool = new ExecutionWorkerPool<IntegrationSession>(
             workerIndex => factories[workerIndex],
@@ -127,10 +127,7 @@ public sealed class MultiThreadedExecutionWorkerTest
                 {
                     var capturedSubmissionIndex = submissionIndex;
                     await worker.ExecuteAsync(
-                        (_, _) =>
-                        {
-                            perSubmitterSequences[capturedSubmitterIndex].Add(capturedSubmissionIndex);
-                        });
+                        (_, _) => perSubmitterSequences[capturedSubmitterIndex].Add(capturedSubmissionIndex));
                 }
             });
         }

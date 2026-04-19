@@ -17,7 +17,7 @@ namespace AdaskoTheBeAsT.Interop.Execution;
 #pragma warning disable CA1815, S1210, MA0102
 public readonly struct ExecutionWorkerPoolSnapshot
 {
-    private static readonly IReadOnlyList<ExecutionWorkerSnapshot> EmptyWorkers = Array.Empty<ExecutionWorkerSnapshot>();
+    private static readonly IReadOnlyList<ExecutionWorkerSnapshot> EmptyWorkers = [];
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ExecutionWorkerPoolSnapshot"/> struct.

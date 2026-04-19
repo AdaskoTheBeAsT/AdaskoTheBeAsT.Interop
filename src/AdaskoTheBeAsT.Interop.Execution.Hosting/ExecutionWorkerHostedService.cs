@@ -10,20 +10,15 @@ namespace AdaskoTheBeAsT.Interop.Execution.Hosting;
 /// exits.
 /// </summary>
 /// <typeparam name="TSession">The session type exposed to submitted work items.</typeparam>
-public sealed class ExecutionWorkerHostedService<TSession> : IHostedService
+/// <remarks>
+/// Initializes a new instance of the <see cref="ExecutionWorkerHostedService{TSession}"/> class.
+/// </remarks>
+/// <param name="worker">The worker to drive. Must not be <see langword="null"/>.</param>
+/// <exception cref="ArgumentNullException"><paramref name="worker"/> is <see langword="null"/>.</exception>
+public sealed class ExecutionWorkerHostedService<TSession>(IExecutionWorker<TSession> worker) : IHostedService
     where TSession : class
 {
-    private readonly IExecutionWorker<TSession> _worker;
-
-    /// <summary>
-    /// Initializes a new instance of the <see cref="ExecutionWorkerHostedService{TSession}"/> class.
-    /// </summary>
-    /// <param name="worker">The worker to drive. Must not be <see langword="null"/>.</param>
-    /// <exception cref="ArgumentNullException"><paramref name="worker"/> is <see langword="null"/>.</exception>
-    public ExecutionWorkerHostedService(IExecutionWorker<TSession> worker)
-    {
-        _worker = worker ?? throw new ArgumentNullException(nameof(worker));
-    }
+    private readonly IExecutionWorker<TSession> _worker = worker ?? throw new ArgumentNullException(nameof(worker));
 
     /// <summary>Starts the underlying worker.</summary>
     /// <param name="cancellationToken">Cancellation token forwarded to <c>InitializeAsync</c>.</param>

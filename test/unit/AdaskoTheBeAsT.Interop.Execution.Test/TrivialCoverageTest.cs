@@ -131,7 +131,7 @@ public sealed class TrivialCoverageTest
     {
         var scheduler = new RoundRobinWorkerScheduler<object>();
 
-        Action action = () => _ = scheduler.SelectWorker(Array.Empty<IExecutionWorker<object>>());
+        Action action = () => _ = scheduler.SelectWorker([]);
 
         action.Should().Throw<ArgumentException>().WithParameterName("workers");
     }
@@ -142,7 +142,7 @@ public sealed class TrivialCoverageTest
         var scheduler = new RoundRobinWorkerScheduler<object>();
         using var worker = new FakeWorker();
 
-        var selected = scheduler.SelectWorker(new[] { (IExecutionWorker<object>)worker });
+        var selected = scheduler.SelectWorker([(IExecutionWorker<object>)worker]);
 
         selected.Should().BeSameAs(worker);
     }
@@ -177,7 +177,7 @@ public sealed class TrivialCoverageTest
     {
         var scheduler = new LeastQueuedWorkerScheduler<object>();
 
-        Action action = () => _ = scheduler.SelectWorker(Array.Empty<IExecutionWorker<object>>());
+        Action action = () => _ = scheduler.SelectWorker([]);
 
         action.Should().Throw<ArgumentException>().WithParameterName("workers");
     }
@@ -188,7 +188,7 @@ public sealed class TrivialCoverageTest
         var scheduler = new LeastQueuedWorkerScheduler<object>();
         using var worker = new FakeWorker();
 
-        var selected = scheduler.SelectWorker(new[] { (IExecutionWorker<object>)worker });
+        var selected = scheduler.SelectWorker([(IExecutionWorker<object>)worker]);
 
         selected.Should().BeSameAs(worker);
     }
@@ -233,7 +233,7 @@ public sealed class TrivialCoverageTest
 
         public Exception? Fault => null;
 
-        public ExecutionWorkerSnapshot GetSnapshot() => new(null, QueueDepth, IsFaulted, Fault);
+        public ExecutionWorkerSnapshot GetSnapshot() => new(name: null, queueDepth: QueueDepth, isFaulted: IsFaulted, fault: Fault);
 
         public void Initialize()
         {

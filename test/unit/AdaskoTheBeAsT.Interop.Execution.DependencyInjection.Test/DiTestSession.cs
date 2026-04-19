@@ -1,11 +1,6 @@
 namespace AdaskoTheBeAsT.Interop.Execution.DependencyInjection.Test;
 
-public sealed class DiTestSession
+public sealed class DiTestSession(int sessionId)
 {
-    public DiTestSession(int sessionId)
-    {
-        SessionId = sessionId;
-    }
-
-    public int SessionId { get; }
+    public int SessionId { get; } = sessionId;
 }

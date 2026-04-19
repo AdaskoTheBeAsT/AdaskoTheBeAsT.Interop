@@ -52,7 +52,7 @@ public sealed class ValueTaskExecutionWorkerTest
 
         var result = await pool.ExecuteValueAsync((session, _) => session.SessionId * 10);
 
-        result.Should().BeGreaterThan(0);
+        result.Should().BePositive();
     }
 
     [Fact]
@@ -61,10 +61,7 @@ public sealed class ValueTaskExecutionWorkerTest
         var factory = new IntegrationSessionFactory();
         await using var worker = new ExecutionWorker<IntegrationSession>(factory);
 
-        Func<Task> failing = async () =>
-        {
-            await worker.ExecuteValueAsync((_, _) => throw new InvalidOperationException("boom"));
-        };
+        Func<Task> failing = async () => await worker.ExecuteValueAsync((_, _) => throw new InvalidOperationException("boom"));
 
         await failing.Should().ThrowAsync<InvalidOperationException>().WithMessage("boom");
     }

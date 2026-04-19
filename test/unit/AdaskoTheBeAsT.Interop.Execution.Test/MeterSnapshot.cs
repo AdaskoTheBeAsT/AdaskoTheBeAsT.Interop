@@ -20,7 +20,7 @@ internal sealed class MeterSnapshot : IDisposable
 #else
     private readonly object _syncRoot = new();
 #endif
-    private readonly List<RecordedMeasurement> _measurements = new();
+    private readonly List<RecordedMeasurement> _measurements = [];
     private readonly MeterListener _listener;
 
     public MeterSnapshot(string meterName)
@@ -103,13 +103,13 @@ internal sealed class MeterSnapshot : IDisposable
 
     private static bool MatchesTags(RecordedMeasurement measurement, (string Key, string Value)[] requiredTags)
     {
-        foreach (var required in requiredTags)
+        foreach (var (requiredKey, requiredValue) in requiredTags)
         {
             var found = false;
             foreach (var tag in measurement.Tags)
             {
-                if (string.Equals(tag.Key, required.Key, StringComparison.Ordinal)
-                    && string.Equals(tag.Value?.ToString(), required.Value, StringComparison.Ordinal))
+                if (string.Equals(tag.Key, requiredKey, StringComparison.Ordinal)
+                    && string.Equals(tag.Value?.ToString(), requiredValue, StringComparison.Ordinal))
                 {
                     found = true;
                     break;
@@ -151,19 +151,12 @@ internal sealed class MeterSnapshot : IDisposable
         }
     }
 
-    private sealed class RecordedMeasurement
+    private sealed class RecordedMeasurement(string instrumentName, long value, KeyValuePair<string, object?>[] tags)
     {
-        public RecordedMeasurement(string instrumentName, long value, KeyValuePair<string, object?>[] tags)
-        {
-            InstrumentName = instrumentName;
-            Value = value;
-            Tags = tags;
-        }
+        public string InstrumentName { get; } = instrumentName;
 
-        public string InstrumentName { get; }
+        public long Value { get; } = value;
 
-        public long Value { get; }
-
-        public KeyValuePair<string, object?>[] Tags { get; }
+        public KeyValuePair<string, object?>[] Tags { get; } = tags;
     }
 }

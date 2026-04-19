@@ -93,7 +93,7 @@ public static class ExecutionWorkerServiceCollectionExtensions
             var options = ResolvePoolOptions(sp, optionsName, configure is not null);
 
             return new ExecutionWorkerPool<TSession>(
-                workerIndex => sp.GetRequiredService<IExecutionSessionFactory<TSession>>(),
+                _ => sp.GetRequiredService<IExecutionSessionFactory<TSession>>(),
                 options);
         });
 

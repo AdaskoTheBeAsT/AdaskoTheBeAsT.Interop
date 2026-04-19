@@ -52,6 +52,80 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Counter<long>` / `ObservableGauge<int>` state.
   See [`docs/adr/0009-scoped-execution-diagnostics.md`](docs/adr/0009-scoped-execution-diagnostics.md).
 
+### Quality
+
+- **SonarCloud PR sweep — 123 INFO-severity findings addressed.** All
+  open code-smells reported on the pull request were either fixed or
+  intentionally suppressed with explanatory comments. Highlights:
+  - **Async-dispose preference (60 findings: `MA0042` + `RCS1261`).**
+    Converted `using var worker = new ExecutionWorker<T>(...)` and
+    `using var workerPool = new ExecutionWorkerPool<T>(...)` to
+    `await using` in every async test method. The two intentional
+    `Dispose()` timeout tests keep sync disposal under file-scoped
+    pragmas (`MA0042`, `RCS1261`, `IDISPxxx`, `VSTHRD103`, `S6966`,
+    `S125`) because they specifically exercise the synchronous
+    timeout branch.
+  - **Primary constructors (`IDE0290`, 11 findings).** `ExecutionWorkerHostedService`,
+    `ExecutionWorkerPoolHostedService`, `ExecutionWorker.ExecutionWorkItem<T>`
+    nested class, `ExecutionWorkerRegistration`, `ExecutionWorkerSnapshot`,
+    `WorkerFaultedEventArgs`, plus test sessions (`IntegrationSession`,
+    `DiTestSession`, `DiSecondTestSession`, `HostedTestSession`,
+    `MeterSnapshot.RecordedMeasurement`) all moved to primary
+    constructors with field-style initializers that preserve every
+    `ArgumentNullException` guard.
+  - **Auto-properties (`RCS1085`, 3 findings).** `ExecutionDiagnostics`
+    converted `_activitySource`, `_operationsCounter`, and
+    `_sessionRecyclesCounter` private fields into auto-implemented
+    properties.
+  - **FluentAssertions style (`FAA0001`, 9 findings).** Replaced
+    `result.Should().BeGreaterThan(0)` with `result.Should().BePositive()`
+    and replaced `observedSessionIds[i].Should().Be(x)` with
+    `observedSessionIds.Should().HaveElementAt(i, x)`.
+  - **Collection initializers (`IDE0028` / `IDE0300` / `IDE0301`,
+    8 findings).** `Array.Empty<T>()` and explicit `new[] { ... }`
+    occurrences in scheduler tests, `ExecutionWorkerPoolSnapshot`'s
+    `EmptyWorkers` field, and `MeterSnapshot._measurements` switched
+    to the `[]` collection-expression syntax.
+  - **`ValueTask` discards (`CA2012`, 5 findings).** Pragma-suppressed
+    around the explicit-throw assertions in
+    `ExecuteValueAsync_ShouldThrowWhenActionDelegateIsNull`,
+    `ExecuteValueAsync_ShouldThrowObjectDisposedExceptionAfterDispose`,
+    and the foreign-scheduler / null-scheduler pool tests, where
+    the test contract is that the call throws synchronously and
+    no usable `ValueTask` is ever produced.
+  - **Named arguments (`MA0003`, 3 findings).** `throw new ArgumentException(...)`
+    in `ExecutionWorker.Process`, `new ExecutionWorkerSnapshot(...)`
+    in scheduler test stubs, and `new ManualResetEventSlim(false)`
+    in dispose-timeout tests now spell parameters by name.
+  - **Polyfill in canonical namespace (`IDE0130`, `MA0182`, `RCS1251`).**
+    `Polyfills/IsExternalInit.cs` MUST live in
+    `System.Runtime.CompilerServices` for the C# compiler to
+    recognize it as the init-only marker on legacy `net46x` / `net47x` /
+    `net48x` TFMs; the three rules are pragma-suppressed at file
+    scope with an inline justification comment.
+  - **Documentation langword (`MA0154`, 2 findings).** `ExecutionWorkerOptions`
+    and `ExecutionWorkerPoolOptions` use `<see langword="new"/>`
+    instead of `<c>new</c>` in their summaries.
+  - **Misc fixes:** unused `workerIndex` parameter in
+    `ExecutionWorkerServiceCollectionExtensions` lambda renamed to
+    `_` (`RCS1163`); cancellation overload added to
+    `TaskCompletionSource.TrySetCanceled` in `ExecutionHelpers`
+    polyfill (`MA0040`); culture-invariant `int.ToString` in
+    interpolated assertion message (`MA0076`); `if/else if` ladder
+    in `Initialize_ShouldDisposeAlreadyStartedWorkers...` test
+    rewritten as a `switch` (`CC0019`); single-statement lambdas in
+    multi-threaded / value-task tests collapsed to expression-bodied
+    form (`RCS1021`); `IDE0042` deconstructed `requiredTags` foreach
+    in `MeterSnapshot.MatchesTags`; `RCS1118` upgraded
+    `expectedSessionCount` to a `const` in
+    `SessionRecyclingExecutionWorkerTest`; `RCS1205` reordered
+    named arguments in `MultiThreadedExecutionWorkerTest`; `CA1806`
+    discarded `new ExecutionDiagnostics(...)` in
+    `ScopedDiagnosticsTest` lambdas (with `IDISP004` co-suppressed
+    because the constructor throws before producing a disposable).
+- **Quality Gate: OK.** All 6 conditions passed; 100 % new-code
+  coverage; A ratings on Reliability, Maintainability, and Security.
+
 ### Tests
 
 - **Coverage raised further from ~92% to ~96.5% overall** by adding a second

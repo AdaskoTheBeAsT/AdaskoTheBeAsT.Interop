@@ -3,7 +3,7 @@ namespace AdaskoTheBeAsT.Interop.Execution;
 /// <summary>
 /// Tuning surface for <see cref="ExecutionWorkerPool{TSession}"/>. Bindable via
 /// <c>IOptions&lt;ExecutionWorkerPoolOptions&gt;</c> while retaining a
-/// positional constructor for plain <c>new</c> usage.
+/// positional constructor for plain <see langword="new"/> usage.
 /// </summary>
 public sealed class ExecutionWorkerPoolOptions
 {

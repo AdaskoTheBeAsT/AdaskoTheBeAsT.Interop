@@ -88,8 +88,13 @@ public sealed class ScopedDiagnosticsTest
     [Fact]
     public void ExecutionDiagnostics_NewInstance_ShouldRejectNullOrWhitespaceName()
     {
-        Action nullName = () => new ExecutionDiagnostics(null!);
-        Action whitespaceName = () => new ExecutionDiagnostics("   ");
+        // IDISP004 / CA1806 suppressed: the test asserts that the constructor throws
+        // before the IDisposable instance is fully constructed, so there is nothing
+        // to dispose. Using `_ =` makes the discard explicit for CA1806.
+#pragma warning disable IDISP004, CA1806
+        Action nullName = () => _ = new ExecutionDiagnostics(null!);
+        Action whitespaceName = () => _ = new ExecutionDiagnostics("   ");
+#pragma warning restore IDISP004, CA1806
 
         nullName.Should().Throw<ArgumentException>().And.ParamName.Should().Be("sourceName");
         whitespaceName.Should().Throw<ArgumentException>().And.ParamName.Should().Be("sourceName");

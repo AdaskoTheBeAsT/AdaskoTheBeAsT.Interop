@@ -4,7 +4,7 @@ namespace AdaskoTheBeAsT.Interop.Execution;
 /// Tuning surface for <see cref="ExecutionWorker{TSession}"/>. Designed to be
 /// bindable via <c>IOptions&lt;ExecutionWorkerOptions&gt;</c> (parameterless
 /// constructor plus public setters) while retaining a positional constructor
-/// for plain <c>new</c> usage.
+/// for plain <see langword="new"/> usage.
 /// </summary>
 public sealed class ExecutionWorkerOptions
 {

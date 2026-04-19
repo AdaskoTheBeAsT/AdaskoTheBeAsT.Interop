@@ -1,17 +1,10 @@
 namespace AdaskoTheBeAsT.Interop.Execution.IntegrationTest;
 
-internal sealed class IntegrationSession
+internal sealed class IntegrationSession(int sessionId, int ownerThreadId, ApartmentState ownerApartmentState)
 {
-    public IntegrationSession(int sessionId, int ownerThreadId, ApartmentState ownerApartmentState)
-    {
-        SessionId = sessionId;
-        OwnerThreadId = ownerThreadId;
-        OwnerApartmentState = ownerApartmentState;
-    }
+    public int SessionId { get; } = sessionId;
 
-    public int SessionId { get; }
+    public int OwnerThreadId { get; } = ownerThreadId;
 
-    public int OwnerThreadId { get; }
-
-    public ApartmentState OwnerApartmentState { get; }
+    public ApartmentState OwnerApartmentState { get; } = ownerApartmentState;
 }

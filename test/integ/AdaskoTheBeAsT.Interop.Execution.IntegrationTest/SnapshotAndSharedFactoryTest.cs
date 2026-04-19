@@ -100,7 +100,7 @@ public sealed class SnapshotAndSharedFactoryTest
 
                 workerSnapshot.IsFaulted.Should().Be(
                     workerFault is not null,
-                    $"snapshot.IsFaulted must match WorkerFaults[{workerIndex}] != null");
+                    $"snapshot.IsFaulted must match WorkerFaults[{workerIndex.ToString(System.Globalization.CultureInfo.InvariantCulture)}] != null");
 
                 if (workerFault is null)
                 {

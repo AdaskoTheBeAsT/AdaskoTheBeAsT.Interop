@@ -53,7 +53,7 @@ public sealed class ExecutionWorkerPoolTest
         var tracker = new PoolSessionTracker();
         var executedWorkerIndices = new ConcurrentBag<int>();
 
-        using var workerPool = CreateWorkerPool(1, tracker);
+        await using var workerPool = CreateWorkerPool(1, tracker);
         await workerPool.ExecuteAsync(
             (session, _) => executedWorkerIndices.Add(session.WorkerIndex),
             cancellationToken: CancellationToken.None);
@@ -68,7 +68,7 @@ public sealed class ExecutionWorkerPoolTest
     {
         var tracker = new PoolSessionTracker();
 
-        using var workerPool = CreateWorkerPool(3, tracker);
+        await using var workerPool = CreateWorkerPool(3, tracker);
         var results = await Task.WhenAll(
             Enumerable.Range(0, 9)
                 .Select(
@@ -101,7 +101,7 @@ public sealed class ExecutionWorkerPoolTest
 
         async Task ExecuteScenarioAsync()
         {
-            using var workerPool = CreateWorkerPool(2, tracker);
+            await using var workerPool = CreateWorkerPool(2, tracker);
             var firstWorker = await workerPool.ExecuteAsync(
                 static (session, _) => (session.WorkerIndex, session.SessionSequence),
                 cancellationToken: CancellationToken.None);
@@ -151,18 +151,20 @@ public sealed class ExecutionWorkerPoolTest
                 failOnCreate: workerIndex == 1,
                 onCreate: () =>
                 {
-                    if (workerIndex == 0)
+                    switch (workerIndex)
                     {
-                        worker0Started.Set();
-                    }
-                    else if (workerIndex == 2)
-                    {
-                        worker2Started.Set();
-                    }
-                    else if (workerIndex == 1)
-                    {
-                        worker0Started.Wait(TimeSpan.FromSeconds(5));
-                        worker2Started.Wait(TimeSpan.FromSeconds(5));
+                        case 0:
+                            worker0Started.Set();
+                            break;
+                        case 2:
+                            worker2Started.Set();
+                            break;
+                        case 1:
+                            worker0Started.Wait(TimeSpan.FromSeconds(5));
+                            worker2Started.Wait(TimeSpan.FromSeconds(5));
+                            break;
+                        default:
+                            break;
                     }
                 }),
             new ExecutionWorkerPoolOptions(3, "Execution Worker Pool"));
@@ -183,7 +185,7 @@ public sealed class ExecutionWorkerPoolTest
     {
         var tracker = new PoolSessionTracker();
 
-        using var workerPool = new ExecutionWorkerPool<PoolSession>(
+        await using var workerPool = new ExecutionWorkerPool<PoolSession>(
             workerIndex => new IndexedTrackingSessionFactory(workerIndex, tracker),
             new ExecutionWorkerPoolOptions(1, " "));
 
@@ -325,7 +327,7 @@ public sealed class ExecutionWorkerPoolTest
             totalCreates += tracker.GetCreateCount(workerIndex);
         }
 
-        totalCreates.Should().BeGreaterThan(0).And.BeLessThanOrEqualTo(WorkerCount);
+        totalCreates.Should().BePositive().And.BeLessThanOrEqualTo(WorkerCount);
     }
 
     [Fact]
@@ -650,7 +652,7 @@ public sealed class ExecutionWorkerPoolTest
     {
         var scheduler = new RoundRobinWorkerScheduler<PoolSession>();
 
-        var action = () => scheduler.SelectWorker(Array.Empty<IExecutionWorker<PoolSession>>());
+        var action = () => scheduler.SelectWorker([]);
 
         action.Should().Throw<ArgumentException>().WithParameterName("workers");
     }
@@ -660,7 +662,7 @@ public sealed class ExecutionWorkerPoolTest
     {
         var scheduler = new LeastQueuedWorkerScheduler<PoolSession>();
 
-        var action = () => scheduler.SelectWorker(Array.Empty<IExecutionWorker<PoolSession>>());
+        var action = () => scheduler.SelectWorker([]);
 
         action.Should().Throw<ArgumentException>().WithParameterName("workers");
     }
@@ -702,7 +704,7 @@ public sealed class ExecutionWorkerPoolTest
         var tracker = new PoolSessionTracker();
         var sharedFactory = new IndexedTrackingSessionFactory(0, tracker);
 
-        using var workerPool = new ExecutionWorkerPool<PoolSession>(
+        await using var workerPool = new ExecutionWorkerPool<PoolSession>(
             sharedFactory,
             new ExecutionWorkerPoolOptions(3, "Shared Factory Pool"));
 
@@ -725,7 +727,7 @@ public sealed class ExecutionWorkerPoolTest
         var tracker = new PoolSessionTracker();
         var sharedFactory = new IndexedTrackingSessionFactory(0, tracker);
 
-        using var workerPool = new ExecutionWorkerPool<PoolSession>(
+        await using var workerPool = new ExecutionWorkerPool<PoolSession>(
             sharedFactory,
             new ExecutionWorkerPoolOptions(3, "Shared Factory Scheduler Pool"),
             new FixedIndexScheduler(targetIndex: 1));
@@ -743,7 +745,7 @@ public sealed class ExecutionWorkerPoolTest
     public async Task ExecuteValueAsync_ShouldRoutesThroughConcreteWorkerAsync()
     {
         var tracker = new PoolSessionTracker();
-        using var workerPool = CreateWorkerPool(2, tracker);
+        await using var workerPool = CreateWorkerPool(2, tracker);
 
         await workerPool.ExecuteValueAsync(
             static (_, _) => { },
@@ -751,14 +753,14 @@ public sealed class ExecutionWorkerPoolTest
 
         // A successful await proves the zero-alloc pool path (SelectConcreteWorker ->
         // ExecutionWorker.ExecuteValueAsync) executed end-to-end.
-        (tracker.GetCreateCount(0) + tracker.GetCreateCount(1)).Should().BeGreaterThan(0);
+        (tracker.GetCreateCount(0) + tracker.GetCreateCount(1)).Should().BePositive();
     }
 
     [Fact]
     public async Task ExecuteValueAsyncOfTResult_ShouldReturnDelegateResultAsync()
     {
         var tracker = new PoolSessionTracker();
-        using var workerPool = CreateWorkerPool(2, tracker);
+        await using var workerPool = CreateWorkerPool(2, tracker);
 
         var result = await workerPool.ExecuteValueAsync(
             static (session, _) => session.WorkerIndex,
@@ -775,14 +777,19 @@ public sealed class ExecutionWorkerPoolTest
         using var foreignWorker = new ForeignExecutionWorker();
         var foreignScheduler = new ForeignWorkerScheduler(foreignWorker);
 
-        using var workerPool = new ExecutionWorkerPool<PoolSession>(
+        await using var workerPool = new ExecutionWorkerPool<PoolSession>(
             workerIndex => new IndexedTrackingSessionFactory(workerIndex, tracker),
             new ExecutionWorkerPoolOptions(1, "Foreign Worker Pool"),
             foreignScheduler);
 
+        // CA2012 disabled: the test's whole point is that ExecuteValueAsync throws
+        // synchronously before producing a usable ValueTask, so the discard is
+        // intentional - awaiting cannot happen.
+#pragma warning disable CA2012
         Action call = () => _ = workerPool.ExecuteValueAsync(
             static (_, _) => { },
             cancellationToken: CancellationToken.None);
+#pragma warning restore CA2012
 
         call.Should().Throw<InvalidOperationException>()
             .WithMessage("*not owned by this pool*");
@@ -817,7 +824,7 @@ public sealed class ExecutionWorkerPoolTest
         var tracker = new PoolSessionTracker();
         var nullScheduler = new NullReturningScheduler();
 
-        using var workerPool = new ExecutionWorkerPool<PoolSession>(
+        await using var workerPool = new ExecutionWorkerPool<PoolSession>(
             workerIndex => new IndexedTrackingSessionFactory(workerIndex, tracker),
             new ExecutionWorkerPoolOptions(1, "Null Scheduler Pool"),
             nullScheduler);
@@ -836,14 +843,19 @@ public sealed class ExecutionWorkerPoolTest
         var tracker = new PoolSessionTracker();
         var nullScheduler = new NullReturningScheduler();
 
-        using var workerPool = new ExecutionWorkerPool<PoolSession>(
+        await using var workerPool = new ExecutionWorkerPool<PoolSession>(
             workerIndex => new IndexedTrackingSessionFactory(workerIndex, tracker),
             new ExecutionWorkerPoolOptions(1, "Null Scheduler Pool"),
             nullScheduler);
 
+        // CA2012 disabled: the test asserts that ExecuteValueAsync throws
+        // synchronously when the scheduler returns null; the discarded
+        // ValueTask is never produced.
+#pragma warning disable CA2012
         Action call = () => _ = workerPool.ExecuteValueAsync(
             static (_, _) => { },
             cancellationToken: CancellationToken.None);
+#pragma warning restore CA2012
 
         call.Should().Throw<InvalidOperationException>()
             .WithMessage("*scheduler returned null*");
@@ -853,14 +865,14 @@ public sealed class ExecutionWorkerPoolTest
     [Fact]
     public async Task Dispose_ShouldReturnWithinTimeoutWhenWorkerThreadIsBlockedAsync()
     {
-        using var gate = new ManualResetEventSlim(false);
+        using var gate = new ManualResetEventSlim(initialState: false);
         var tracker = new PoolSessionTracker();
 
         // This test deliberately exercises the synchronous pool Dispose
         // timeout branch by wedging the single worker's session factory on a
         // gate that the test only releases in the finally block; async
         // disposal would bypass the timeout branch this test is asserting on.
-#pragma warning disable IDISP001, IDISP003, IDISP016, IDISP017, VSTHRD103, S6966, S125
+#pragma warning disable IDISP001, IDISP003, IDISP016, IDISP017, VSTHRD103, S6966, S125, MA0042, RCS1261
         var workerPool = new ExecutionWorkerPool<PoolSession>(
             workerIndex => new BlockingPoolSessionFactory(workerIndex, tracker, gate),
             new ExecutionWorkerPoolOptions(
@@ -884,7 +896,7 @@ public sealed class ExecutionWorkerPoolTest
             gate.Set();
             workerPool.Dispose();
         }
-#pragma warning restore IDISP001, IDISP003, IDISP016, IDISP017, VSTHRD103, S6966, S125
+#pragma warning restore IDISP001, IDISP003, IDISP016, IDISP017, VSTHRD103, S6966, S125, MA0042, RCS1261
     }
 
     private static async Task WaitUntilAsync(Func<bool> predicate)

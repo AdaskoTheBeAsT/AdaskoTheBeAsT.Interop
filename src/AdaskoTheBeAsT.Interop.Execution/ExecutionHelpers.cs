@@ -49,7 +49,7 @@ internal static class ExecutionHelpers
         var cancellationTcs = new TaskCompletionSource<object?>(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
-        using (cancellationToken.Register(state => ((TaskCompletionSource<object?>)state!).TrySetCanceled(), cancellationTcs))
+        using (cancellationToken.Register(state => ((TaskCompletionSource<object?>)state!).TrySetCanceled(cancellationToken), cancellationTcs))
         {
             var completed = await Task.WhenAny(task, cancellationTcs.Task).ConfigureAwait(false);
             if (completed != task)

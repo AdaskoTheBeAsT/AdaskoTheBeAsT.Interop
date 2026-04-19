@@ -55,7 +55,7 @@ public sealed class ExecutionWorkerPoolHostedServiceTest
             static (session, _) => session.SessionId,
             cancellationToken: CancellationToken.None);
 
-        result.Should().BeGreaterThan(0);
+        result.Should().BePositive();
         pool.WorkerCount.Should().Be(2);
 
         await hostedService.StopAsync(CancellationToken.None);

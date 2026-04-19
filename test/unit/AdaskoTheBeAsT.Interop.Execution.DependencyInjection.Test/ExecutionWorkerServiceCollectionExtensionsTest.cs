@@ -40,7 +40,7 @@ public sealed class ExecutionWorkerServiceCollectionExtensionsTest
             static (session, _) => session.SessionId,
             cancellationToken: CancellationToken.None);
 
-        result.Should().BeGreaterThan(0);
+        result.Should().BePositive();
     }
 
     [Fact]
@@ -97,7 +97,7 @@ public sealed class ExecutionWorkerServiceCollectionExtensionsTest
             static (session, _) => session.SessionId,
             cancellationToken: CancellationToken.None);
 
-        result.Should().BeGreaterThan(0);
+        result.Should().BePositive();
         pool.WorkerCount.Should().Be(2);
     }
 

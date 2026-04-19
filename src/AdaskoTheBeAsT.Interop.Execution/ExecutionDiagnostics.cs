@@ -34,10 +34,7 @@ public sealed class ExecutionDiagnostics : IDisposable
     private static readonly Lazy<ExecutionDiagnostics> LazyShared =
         new(static () => new ExecutionDiagnostics(ExecutionDiagnosticNames.SourceName));
 
-    private readonly ActivitySource _activitySource;
     private readonly Meter _meter;
-    private readonly Counter<long> _operationsCounter;
-    private readonly Counter<long> _sessionRecyclesCounter;
     private readonly ConcurrentDictionary<ExecutionWorkerRegistration, byte> _workers = new();
 
 #pragma warning disable IDE0052, S1144, S4487
@@ -75,15 +72,15 @@ public sealed class ExecutionDiagnostics : IDisposable
         SourceName = sourceName;
         var version = GetDiagnosticAssemblyVersion();
 
-        _activitySource = new ActivitySource(sourceName, version);
+        ActivitySource = new ActivitySource(sourceName, version);
         _meter = new Meter(sourceName, version);
 
-        _operationsCounter = _meter.CreateCounter<long>(
+        OperationsCounter = _meter.CreateCounter<long>(
             name: ExecutionDiagnosticNames.MetricOperations,
             unit: "{operation}",
             description: "Number of work items processed by execution workers, tagged by outcome.");
 
-        _sessionRecyclesCounter = _meter.CreateCounter<long>(
+        SessionRecyclesCounter = _meter.CreateCounter<long>(
             name: ExecutionDiagnosticNames.MetricSessionRecycles,
             unit: "{recycle}",
             description: "Number of session recycles triggered by execution workers, tagged by reason.");
@@ -106,11 +103,11 @@ public sealed class ExecutionDiagnostics : IDisposable
     /// <summary>Gets the source name assigned to this scope.</summary>
     public string SourceName { get; }
 
-    internal ActivitySource ActivitySource => _activitySource;
+    internal ActivitySource ActivitySource { get; }
 
-    internal Counter<long> OperationsCounter => _operationsCounter;
+    internal Counter<long> OperationsCounter { get; }
 
-    internal Counter<long> SessionRecyclesCounter => _sessionRecyclesCounter;
+    internal Counter<long> SessionRecyclesCounter { get; }
 
     /// <summary>
     /// Disposes the underlying <see cref="ActivitySource"/> and
@@ -130,7 +127,7 @@ public sealed class ExecutionDiagnostics : IDisposable
             return;
         }
 
-        _activitySource.Dispose();
+        ActivitySource.Dispose();
         _meter.Dispose();
     }
 

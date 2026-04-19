@@ -49,7 +49,7 @@ public sealed class ExecutionWorkerTest
         var sessionFactory = new TrackingSessionFactory();
         var executedSessionIds = new ConcurrentBag<int>();
 
-        using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+        await using var worker = new ExecutionWorker<TestSession>(sessionFactory);
         await worker.ExecuteAsync(
             (session, _) => executedSessionIds.Add(session.SessionId),
             cancellationToken: CancellationToken.None);
@@ -63,7 +63,7 @@ public sealed class ExecutionWorkerTest
     public async Task ExecuteAsync_ShouldReturnFaultedTaskWhenTheChannelRejectsWorkAsync()
     {
         var sessionFactory = new TrackingSessionFactory();
-        using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+        await using var worker = new ExecutionWorker<TestSession>(sessionFactory);
         worker.TryCompleteChannelForTesting().Should().BeTrue();
 
         Func<Task> action = async () => await worker.ExecuteAsync(
@@ -118,7 +118,7 @@ public sealed class ExecutionWorkerTest
     {
         var sessionFactory = new TrackingSessionFactory();
 
-        using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+        await using var worker = new ExecutionWorker<TestSession>(sessionFactory);
         var callerThreadId = Environment.CurrentManagedThreadId;
         var submissions = new ConcurrentBag<Task<(int SessionId, int ManagedThreadId, int OwnerThreadId)>>();
         var writers = Enumerable.Range(0, 16)
@@ -158,7 +158,7 @@ public sealed class ExecutionWorkerTest
     {
         var sessionFactory = new TrackingSessionFactory();
         using var cancellationTokenSource = new CancellationTokenSource();
-        using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+        await using var worker = new ExecutionWorker<TestSession>(sessionFactory);
 
         await CancelAsync(cancellationTokenSource);
 
@@ -174,7 +174,7 @@ public sealed class ExecutionWorkerTest
     [Fact]
     public async Task ExecuteAsync_ShouldThrowWhenSessionFactoryReturnsNullAsync()
     {
-        using var worker = new ExecutionWorker<TestSession>(new NullSessionFactory());
+        await using var worker = new ExecutionWorker<TestSession>(new NullSessionFactory());
         Func<Task> action = async () => await worker.ExecuteAsync(
             static (session, _) => session.SessionId,
             cancellationToken: CancellationToken.None);
@@ -193,7 +193,7 @@ public sealed class ExecutionWorkerTest
         var sessionFactory = new TrackingSessionFactory();
         var options = new ExecutionWorkerOptions(useStaThread: true);
 
-        using var worker = new ExecutionWorker<TestSession>(sessionFactory, options);
+        await using var worker = new ExecutionWorker<TestSession>(sessionFactory, options);
         var apartmentState = await worker.ExecuteAsync(
             static (_, _) => Thread.CurrentThread.GetApartmentState(),
             cancellationToken: CancellationToken.None);
@@ -211,7 +211,7 @@ public sealed class ExecutionWorkerTest
 
         async Task ExecuteScenarioAsync()
         {
-            using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+            await using var worker = new ExecutionWorker<TestSession>(sessionFactory);
             var firstSessionId = await worker.ExecuteAsync(
                 static (session, _) => session.SessionId,
                 cancellationToken: CancellationToken.None);
@@ -238,7 +238,7 @@ public sealed class ExecutionWorkerTest
     {
         var sessionFactory = new TrackingSessionFactory();
 
-        using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+        await using var worker = new ExecutionWorker<TestSession>(sessionFactory);
         var firstSessionId = await worker.ExecuteAsync(
             static (session, _) => session.SessionId,
             cancellationToken: CancellationToken.None);
@@ -268,7 +268,7 @@ public sealed class ExecutionWorkerTest
 
         async Task ExecuteScenarioAsync()
         {
-            using var worker = new ExecutionWorker<TestSession>(sessionFactory, options);
+            await using var worker = new ExecutionWorker<TestSession>(sessionFactory, options);
             var firstSessionId = await worker.ExecuteAsync(
                 static (session, _) => session.SessionId,
                 cancellationToken: CancellationToken.None);
@@ -293,7 +293,7 @@ public sealed class ExecutionWorkerTest
         var enteredFirstAction = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
         using var queuedCancellationTokenSource = new CancellationTokenSource();
         using var releaseFirstAction = new ManualResetEventSlim();
-        using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+        await using var worker = new ExecutionWorker<TestSession>(sessionFactory);
         var secondActionCallCount = 0;
 
         var firstTask = worker.ExecuteAsync(
@@ -331,7 +331,7 @@ public sealed class ExecutionWorkerTest
         var sessionFactory = new TrackingSessionFactory();
         var enteredAction = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
         using var cancellationTokenSource = new CancellationTokenSource();
-        using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+        await using var worker = new ExecutionWorker<TestSession>(sessionFactory);
 
         var task = worker.ExecuteAsync(
             (_, cancellationToken) =>
@@ -355,7 +355,7 @@ public sealed class ExecutionWorkerTest
     {
         var sessionFactory = new FaultingSessionFactory(new InvalidOperationException("boom"));
 
-        using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+        await using var worker = new ExecutionWorker<TestSession>(sessionFactory);
         var initialize = worker.Initialize;
         initialize.Should().Throw<InvalidOperationException>().WithMessage("boom");
         initialize.Should().Throw<InvalidOperationException>().WithMessage("boom");
@@ -450,7 +450,7 @@ public sealed class ExecutionWorkerTest
     public async Task Dispose_ShouldReturnWhenCalledFromTheWorkerThreadAsync()
     {
         var sessionFactory = new TrackingSessionFactory();
-        using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+        await using var worker = new ExecutionWorker<TestSession>(sessionFactory);
         var task = worker.ExecuteAsync(
             (session, _) =>
             {
@@ -473,7 +473,7 @@ public sealed class ExecutionWorkerTest
     public async Task Dispose_ShouldIgnoreSessionDisposeFailuresDuringWorkerShutdownAsync()
     {
         var sessionFactory = new TrackingSessionFactory(new InvalidOperationException("dispose boom"));
-        using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+        await using var worker = new ExecutionWorker<TestSession>(sessionFactory);
         _ = await worker.ExecuteAsync(
             static (session, _) => session.SessionId,
             cancellationToken: CancellationToken.None);
@@ -491,7 +491,7 @@ public sealed class ExecutionWorkerTest
         var enteredFirstAction = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
         using var queuedCancellationTokenSource = new CancellationTokenSource();
         using var releaseFirstAction = new ManualResetEventSlim();
-        using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+        await using var worker = new ExecutionWorker<TestSession>(sessionFactory);
 
         var firstTask = worker.ExecuteAsync<int>(
             (_, cancellationToken) =>
@@ -532,7 +532,7 @@ public sealed class ExecutionWorkerTest
     public async Task ExecuteAsync_ShouldRethrowFatalFailureAfterTheWorkerFaultsAsync()
     {
         var sessionFactory = new TrackingSessionFactory(new InvalidOperationException("dispose boom"));
-        using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+        await using var worker = new ExecutionWorker<TestSession>(sessionFactory);
         Func<Task> action = async () => await worker.ExecuteAsync<int>(
             static (_, _) => throw new InvalidOperationException("boom"),
             new ExecutionRequestOptions(recycleSessionOnFailure: true),
@@ -597,7 +597,7 @@ public sealed class ExecutionWorkerTest
     public async Task WorkerFaulted_ShouldNotBreakShutdownWhenSubscriberThrowsAsync()
     {
         var sessionFactory = new TrackingSessionFactory(new InvalidOperationException("dispose boom"));
-        using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+        await using var worker = new ExecutionWorker<TestSession>(sessionFactory);
         worker.WorkerFaulted += (_, _) => throw new InvalidOperationException("subscriber boom");
 
         Func<Task> action = async () => await worker.ExecuteAsync<int>(
@@ -819,7 +819,7 @@ public sealed class ExecutionWorkerTest
         using var listener = new ActivityListener
         {
             ShouldListenTo = source => string.Equals(source.Name, diagnostics.SourceName, StringComparison.Ordinal),
-            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData,
+            Sample = static (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData,
             ActivityStopped = activity =>
             {
                 if (string.Equals(activity.GetTagItem(ExecutionDiagnosticNames.TagWorkerName) as string, WorkerName, StringComparison.Ordinal))
@@ -879,7 +879,12 @@ public sealed class ExecutionWorkerTest
         var sessionFactory = new TrackingSessionFactory();
         using var worker = new ExecutionWorker<TestSession>(sessionFactory);
 
+        // CA2012 disabled: the test asserts that ExecuteValueAsync throws
+        // synchronously on a null delegate, so the discarded ValueTask is
+        // never produced.
+#pragma warning disable CA2012
         Action call = () => _ = worker.ExecuteValueAsync((Action<TestSession, CancellationToken>)null!);
+#pragma warning restore CA2012
 
         call.Should().Throw<ArgumentNullException>().WithParameterName("action");
     }
@@ -890,7 +895,10 @@ public sealed class ExecutionWorkerTest
         var sessionFactory = new TrackingSessionFactory();
         using var worker = new ExecutionWorker<TestSession>(sessionFactory);
 
+        // CA2012 disabled: see preceding test.
+#pragma warning disable CA2012
         Action call = () => _ = worker.ExecuteValueAsync<int>((Func<TestSession, CancellationToken, int>)null!);
+#pragma warning restore CA2012
 
         call.Should().Throw<ArgumentNullException>().WithParameterName("action");
     }
@@ -970,13 +978,15 @@ public sealed class ExecutionWorkerTest
     [Fact]
     public void ExecuteValueAsync_ShouldThrowObjectDisposedExceptionAfterDispose()
     {
-#pragma warning disable IDISP016, IDISP017
+        // CA2012 disabled: the test asserts ExecuteValueAsync throws
+        // synchronously after disposal, so the discarded ValueTask is never produced.
+#pragma warning disable IDISP016, IDISP017, CA2012
         var sessionFactory = new TrackingSessionFactory();
         var worker = new ExecutionWorker<TestSession>(sessionFactory);
         worker.Dispose();
 
         Action call = () => _ = worker.ExecuteValueAsync(static (_, _) => { });
-#pragma warning restore IDISP016, IDISP017
+#pragma warning restore IDISP016, IDISP017, CA2012
 
         call.Should().Throw<ObjectDisposedException>();
     }
@@ -985,7 +995,13 @@ public sealed class ExecutionWorkerTest
     public Task InitializeAsync_ShouldReturnCancelledTaskForPreCancelledTokenAsync()
     {
         var sessionFactory = new TrackingSessionFactory();
+
+        // RCS1261/MA0042 disabled: this test is intentionally sync (returns Task,
+        // not async Task) so it can assert IsCanceled on the synchronously-completed
+        // Task; converting to `await using` would force the method to become async.
+#pragma warning disable RCS1261, MA0042
         using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+#pragma warning restore RCS1261, MA0042
 
         using var cts = new CancellationTokenSource();
 #pragma warning disable VSTHRD103, S6966
@@ -1075,14 +1091,14 @@ public sealed class ExecutionWorkerTest
     [Fact]
     public async Task Dispose_ShouldReturnWithinTimeoutWhenWorkerThreadIsBlockedAsync()
     {
-        using var gate = new ManualResetEventSlim(false);
+        using var gate = new ManualResetEventSlim(initialState: false);
         var sessionFactory = new BlockingSessionFactory(gate);
 
         // This test deliberately exercises the synchronous worker Dispose
         // timeout branch by wedging the worker thread in a blocking session
         // factory; async disposal would bypass the timeout branch this test
         // is asserting on.
-#pragma warning disable IDISP001, IDISP003, IDISP016, IDISP017, VSTHRD103, S6966, S125
+#pragma warning disable IDISP001, IDISP003, IDISP016, IDISP017, VSTHRD103, S6966, S125, MA0042, RCS1261
         var worker = new ExecutionWorker<TestSession>(
             sessionFactory,
             new ExecutionWorkerOptions(disposeTimeout: TimeSpan.FromMilliseconds(100)));
@@ -1103,7 +1119,7 @@ public sealed class ExecutionWorkerTest
             gate.Set();
             worker.Dispose();
         }
-#pragma warning restore IDISP001, IDISP003, IDISP016, IDISP017, VSTHRD103, S6966, S125
+#pragma warning restore IDISP001, IDISP003, IDISP016, IDISP017, VSTHRD103, S6966, S125, MA0042, RCS1261
     }
 
     private static Task CancelAsync(CancellationTokenSource cancellationTokenSource)

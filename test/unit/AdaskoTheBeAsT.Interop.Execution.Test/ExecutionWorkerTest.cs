@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.Runtime.ExceptionServices;
 using AwesomeAssertions;
 using Xunit;
@@ -69,6 +71,46 @@ public sealed class ExecutionWorkerTest
             cancellationToken: CancellationToken.None);
 
         await action.Should().ThrowAsync<ObjectDisposedException>();
+    }
+
+    [Fact]
+    public void ExecuteAsync_ShouldThrowObjectDisposedExceptionAfterDispose()
+    {
+        // IDISP016/IDISP017 disabled: this test is specifically verifying the
+        // post-Dispose() behavioural contract of ExecuteAsync, so we deliberately
+        // hold and invoke the worker after disposal instead of using a
+        // using-declaration.
+#pragma warning disable IDISP016, IDISP017
+        var sessionFactory = new TrackingSessionFactory();
+        var worker = new ExecutionWorker<TestSession>(sessionFactory);
+        worker.Dispose();
+
+        Action action = () => _ = worker.ExecuteAsync(
+            static (session, _) => session.SessionId,
+            cancellationToken: CancellationToken.None);
+#pragma warning restore IDISP016, IDISP017
+
+        action.Should().Throw<ObjectDisposedException>();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ShouldThrowObjectDisposedExceptionAfterDisposeAsyncAsync()
+    {
+        // IDISP016/IDISP017 disabled: this test is specifically verifying the
+        // post-DisposeAsync behavioural contract of ExecuteAsync, so the worker
+        // is intentionally constructed without a using-declaration and used
+        // after disposal.
+#pragma warning disable IDISP016, IDISP017
+        var sessionFactory = new TrackingSessionFactory();
+        var worker = new ExecutionWorker<TestSession>(sessionFactory);
+        await worker.DisposeAsync();
+
+        Action action = () => _ = worker.ExecuteAsync(
+            static (session, _) => session.SessionId,
+            cancellationToken: CancellationToken.None);
+#pragma warning restore IDISP016, IDISP017
+
+        action.Should().Throw<ObjectDisposedException>();
     }
 
     [Fact]
@@ -400,7 +442,7 @@ public sealed class ExecutionWorkerTest
         finally
         {
             releaseFirstAction.Set();
-            worker.Dispose();
+            await worker.DisposeAsync();
         }
     }
 
@@ -504,6 +546,331 @@ public sealed class ExecutionWorkerTest
             cancellationToken: CancellationToken.None);
 
         followUpAction.Should().Throw<InvalidOperationException>().WithMessage("dispose boom");
+    }
+
+    [Fact]
+    public void IsFaulted_ShouldBeFalseForHealthyWorker()
+    {
+        var sessionFactory = new TrackingSessionFactory();
+        using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+
+        worker.IsFaulted.Should().BeFalse();
+        worker.Fault.Should().BeNull();
+    }
+
+    [Fact]
+    public void IsFaulted_ShouldTransitionToTrueAfterTerminalFailure()
+    {
+        var sessionFactory = new TrackingSessionFactory();
+        using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+        var expected = new InvalidOperationException("fatal boom");
+        worker.SetFatalFailure(ExceptionDispatchInfo.Capture(expected));
+
+        worker.IsFaulted.Should().BeTrue();
+        worker.Fault.Should().BeSameAs(expected);
+    }
+
+    [Fact]
+    public async Task WorkerFaulted_ShouldFireExactlyOnceWhenBothWorkItemAndDisposeSessionThrowAsync()
+    {
+        var sessionFactory = new TrackingSessionFactory(new InvalidOperationException("dispose boom"));
+        var options = new ExecutionWorkerOptions(name: "Fault Worker");
+        await using var worker = new ExecutionWorker<TestSession>(sessionFactory, options);
+        var raised = new ConcurrentBag<WorkerFaultedEventArgs>();
+        worker.WorkerFaulted += (_, args) => raised.Add(args);
+
+        Func<Task> action = async () => await worker.ExecuteAsync<int>(
+            static (_, _) => throw new InvalidOperationException("boom"),
+            new ExecutionRequestOptions(recycleSessionOnFailure: true),
+            CancellationToken.None);
+
+        await action.Should().ThrowAsync<InvalidOperationException>().WithMessage("boom");
+        await WaitUntilAsync(() => worker.IsFaulted);
+
+        raised.Should().ContainSingle();
+        var single = raised.Single();
+        single.Exception.Should().BeOfType<InvalidOperationException>().Which.Message.Should().Be("dispose boom");
+        single.WorkerName.Should().Be("Fault Worker");
+    }
+
+    [Fact]
+    public async Task WorkerFaulted_ShouldNotBreakShutdownWhenSubscriberThrowsAsync()
+    {
+        var sessionFactory = new TrackingSessionFactory(new InvalidOperationException("dispose boom"));
+        using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+        worker.WorkerFaulted += (_, _) => throw new InvalidOperationException("subscriber boom");
+
+        Func<Task> action = async () => await worker.ExecuteAsync<int>(
+            static (_, _) => throw new InvalidOperationException("boom"),
+            new ExecutionRequestOptions(recycleSessionOnFailure: true),
+            CancellationToken.None);
+
+        await action.Should().ThrowAsync<InvalidOperationException>().WithMessage("boom");
+        await WaitUntilAsync(() => sessionFactory.DisposeCount == 1);
+
+        var dispose = worker.Dispose;
+        dispose.Should().NotThrow();
+    }
+
+    [Fact]
+    public async Task QueueDepth_ShouldReportQueuedWorkAndDrainAfterProcessingAsync()
+    {
+        var sessionFactory = new TrackingSessionFactory();
+        var enteredFirstAction = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var releaseFirstAction = new ManualResetEventSlim();
+        await using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+
+        worker.QueueDepth.Should().Be(0);
+
+        // AsyncFixer04 disabled: these tasks are stored in local variables/arrays and
+        // awaited together via Task.WhenAll before the 'await using' disposes the
+        // worker. The analyzer does not track the lifetime through array indexing.
+#pragma warning disable AsyncFixer04
+        var firstTask = worker.ExecuteAsync(
+            (session, cancellationToken) =>
+            {
+                enteredFirstAction.TrySetResult(null);
+                releaseFirstAction.Wait(cancellationToken);
+                return session.SessionId;
+            },
+            cancellationToken: CancellationToken.None);
+
+        await enteredFirstAction.Task;
+
+        var queued = new Task[3];
+        for (var i = 0; i < queued.Length; i++)
+        {
+            queued[i] = worker.ExecuteAsync(
+                static (session, _) => session.SessionId,
+                cancellationToken: CancellationToken.None);
+        }
+#pragma warning restore AsyncFixer04
+
+        await WaitUntilAsync(() => worker.QueueDepth == 3);
+        worker.QueueDepth.Should().Be(3);
+
+        releaseFirstAction.Set();
+        await firstTask;
+        await Task.WhenAll(queued);
+
+        await WaitUntilAsync(() => worker.QueueDepth == 0);
+        worker.QueueDepth.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Telemetry_ShouldIncrementOperationsCounterWithSuccessOutcomeAsync()
+    {
+        using var diagnostics = new ExecutionDiagnostics(
+            $"{ExecutionDiagnosticNames.SourceName}.Test.{Guid.NewGuid():N}");
+        using var listener = new MeterSnapshot(diagnostics.SourceName);
+        var sessionFactory = new TrackingSessionFactory();
+        await using var worker = new ExecutionWorker<TestSession>(
+            sessionFactory,
+            new ExecutionWorkerOptions(name: "Telemetry Worker", diagnostics: diagnostics));
+
+        _ = await worker.ExecuteAsync(
+            static (session, _) => session.SessionId,
+            cancellationToken: CancellationToken.None);
+
+        listener.Collect();
+        var success = listener.Sum(
+            ExecutionDiagnosticNames.MetricOperations,
+            (ExecutionDiagnosticNames.TagWorkerName, "Telemetry Worker"),
+            (ExecutionDiagnosticNames.TagOutcome, ExecutionDiagnosticNames.OutcomeSuccess));
+
+        success.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Telemetry_ShouldIncrementOperationsCounterWithFaultedOutcomeAsync()
+    {
+        using var diagnostics = new ExecutionDiagnostics(
+            $"{ExecutionDiagnosticNames.SourceName}.Test.{Guid.NewGuid():N}");
+        using var listener = new MeterSnapshot(diagnostics.SourceName);
+        var sessionFactory = new TrackingSessionFactory();
+        await using var worker = new ExecutionWorker<TestSession>(
+            sessionFactory,
+            new ExecutionWorkerOptions(name: "Faulted Worker", diagnostics: diagnostics));
+
+        Func<Task> action = async () => await worker.ExecuteAsync<int>(
+            static (_, _) => throw new InvalidOperationException("boom"),
+            cancellationToken: CancellationToken.None);
+
+        await action.Should().ThrowAsync<InvalidOperationException>().WithMessage("boom");
+
+        listener.Collect();
+        var faulted = listener.Sum(
+            ExecutionDiagnosticNames.MetricOperations,
+            (ExecutionDiagnosticNames.TagWorkerName, "Faulted Worker"),
+            (ExecutionDiagnosticNames.TagOutcome, ExecutionDiagnosticNames.OutcomeFaulted));
+
+        faulted.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Telemetry_ShouldIncrementSessionRecyclesCounterForMaxOperationsAsync()
+    {
+        using var diagnostics = new ExecutionDiagnostics(
+            $"{ExecutionDiagnosticNames.SourceName}.Test.{Guid.NewGuid():N}");
+        using var listener = new MeterSnapshot(diagnostics.SourceName);
+        var sessionFactory = new TrackingSessionFactory();
+        await using var worker = new ExecutionWorker<TestSession>(
+            sessionFactory,
+            new ExecutionWorkerOptions(name: "Recycle Worker", maxOperationsPerSession: 1, diagnostics: diagnostics));
+
+        _ = await worker.ExecuteAsync(
+            static (session, _) => session.SessionId,
+            cancellationToken: CancellationToken.None);
+        _ = await worker.ExecuteAsync(
+            static (session, _) => session.SessionId,
+            cancellationToken: CancellationToken.None);
+
+        listener.Collect();
+        var recycles = listener.Sum(
+            ExecutionDiagnosticNames.MetricSessionRecycles,
+            (ExecutionDiagnosticNames.TagWorkerName, "Recycle Worker"),
+            (ExecutionDiagnosticNames.TagRecycleReason, ExecutionDiagnosticNames.RecycleMaxOperations));
+
+        recycles.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Telemetry_ShouldIncrementSessionRecyclesCounterForFailureAsync()
+    {
+        using var diagnostics = new ExecutionDiagnostics(
+            $"{ExecutionDiagnosticNames.SourceName}.Test.{Guid.NewGuid():N}");
+        using var listener = new MeterSnapshot(diagnostics.SourceName);
+        var sessionFactory = new TrackingSessionFactory();
+        await using var worker = new ExecutionWorker<TestSession>(
+            sessionFactory,
+            new ExecutionWorkerOptions(name: "Recycle Fail Worker", diagnostics: diagnostics));
+
+        Func<Task> action = async () => await worker.ExecuteAsync<int>(
+            static (_, _) => throw new InvalidOperationException("boom"),
+            new ExecutionRequestOptions(recycleSessionOnFailure: true),
+            CancellationToken.None);
+
+        await action.Should().ThrowAsync<InvalidOperationException>();
+
+        listener.Collect();
+        var recycles = listener.Sum(
+            ExecutionDiagnosticNames.MetricSessionRecycles,
+            (ExecutionDiagnosticNames.TagWorkerName, "Recycle Fail Worker"),
+            (ExecutionDiagnosticNames.TagRecycleReason, ExecutionDiagnosticNames.RecycleFailure));
+
+        recycles.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Telemetry_ShouldReportQueueDepthViaObservableGaugeAsync()
+    {
+        using var diagnostics = new ExecutionDiagnostics(
+            $"{ExecutionDiagnosticNames.SourceName}.Test.{Guid.NewGuid():N}");
+        using var listener = new MeterSnapshot(diagnostics.SourceName);
+        var sessionFactory = new TrackingSessionFactory();
+        await using var worker = new ExecutionWorker<TestSession>(
+            sessionFactory,
+            new ExecutionWorkerOptions(name: "Gauge Worker", diagnostics: diagnostics));
+
+        using var releaseFirstAction = new ManualResetEventSlim();
+        var enteredFirstAction = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+#pragma warning disable AsyncFixer04
+        var firstTask = worker.ExecuteAsync(
+            (session, cancellationToken) =>
+            {
+                enteredFirstAction.TrySetResult(null);
+                releaseFirstAction.Wait(cancellationToken);
+                return session.SessionId;
+            },
+            cancellationToken: CancellationToken.None);
+
+        await enteredFirstAction.Task;
+
+        var queued = new Task[2];
+        for (var i = 0; i < queued.Length; i++)
+        {
+            queued[i] = worker.ExecuteAsync(
+                static (session, _) => session.SessionId,
+                cancellationToken: CancellationToken.None);
+        }
+#pragma warning restore AsyncFixer04
+
+        await WaitUntilAsync(() => worker.QueueDepth == 2);
+
+        listener.Collect();
+        var depth = listener.Last(
+            ExecutionDiagnosticNames.MetricQueueDepth,
+            (ExecutionDiagnosticNames.TagWorkerName, "Gauge Worker"));
+        depth.Should().Be(2);
+
+        releaseFirstAction.Set();
+        await firstTask;
+        await Task.WhenAll(queued);
+    }
+
+    [Fact]
+    public async Task Telemetry_ShouldStartActivityForExecutionAsync()
+    {
+        const string WorkerName = "Activity Worker Telemetry Test";
+        using var diagnostics = new ExecutionDiagnostics(
+            $"{ExecutionDiagnosticNames.SourceName}.Test.{Guid.NewGuid():N}");
+        var recorded = new ConcurrentBag<Activity>();
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = source => string.Equals(source.Name, diagnostics.SourceName, StringComparison.Ordinal),
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData,
+            ActivityStopped = activity =>
+            {
+                if (string.Equals(activity.GetTagItem(ExecutionDiagnosticNames.TagWorkerName) as string, WorkerName, StringComparison.Ordinal))
+                {
+                    recorded.Add(activity);
+                }
+            },
+        };
+        ActivitySource.AddActivityListener(listener);
+
+        var sessionFactory = new TrackingSessionFactory();
+        await using var worker = new ExecutionWorker<TestSession>(
+            sessionFactory,
+            new ExecutionWorkerOptions(name: WorkerName, diagnostics: diagnostics));
+
+        _ = await worker.ExecuteAsync(
+            static (session, _) => session.SessionId,
+            cancellationToken: CancellationToken.None);
+
+        await WaitUntilAsync(() => !recorded.IsEmpty);
+
+        recorded.Should().ContainSingle();
+        var activity = recorded.Single();
+        activity.OperationName.Should().Be(ExecutionDiagnosticNames.ActivityExecute);
+        activity.GetTagItem(ExecutionDiagnosticNames.TagWorkerName).Should().Be(WorkerName);
+        activity.Status.Should().Be(ActivityStatusCode.Ok);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ShouldHandleHighConcurrencyStressSubmissionsAsync()
+    {
+        const int SubmissionCount = 1_000;
+        var sessionFactory = new TrackingSessionFactory();
+        await using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+
+        var submissionTasks = new Task<int>[SubmissionCount];
+        Parallel.For(
+            0,
+            SubmissionCount,
+            index => submissionTasks[index] = worker.ExecuteAsync(
+                static (session, _) => session.SessionId,
+                cancellationToken: CancellationToken.None));
+
+        var allTask = Task.WhenAll(submissionTasks);
+        var completed = await Task.WhenAny(allTask, Task.Delay(TimeSpan.FromSeconds(30), CancellationToken.None));
+        completed.Should().BeSameAs(allTask);
+
+        var results = await allTask;
+        results.Should().HaveCount(SubmissionCount);
+        results.Should().OnlyContain(static sessionId => sessionId == 1);
+        sessionFactory.CreateCount.Should().Be(1);
     }
 
     private static Task CancelAsync(CancellationTokenSource cancellationTokenSource)

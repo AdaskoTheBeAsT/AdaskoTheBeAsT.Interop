@@ -1,0 +1,31 @@
+{
+  "$schema": "https://alirezanet.github.io/Husky.Net/schema.json",
+  "tasks": [
+    {
+      "name": "strict-build",
+      "group": "pre-commit",
+      "command": "dotnet",
+      "args": [
+        "build",
+        "AdaskoTheBeAsT.Interop.slnx",
+        "--no-incremental",
+        "-t:Rebuild",
+        "-p:TreatWarningsAsErrors=true",
+        "-p:ContinuousIntegrationBuild=true"
+      ]
+    },
+    {
+      "name": "unit-tests",
+      "group": "pre-commit",
+      "command": "dotnet",
+      "args": [
+        "test",
+        "AdaskoTheBeAsT.Interop.slnx",
+        "--no-build",
+        "--nologo",
+        "--verbosity",
+        "minimal"
+      ]
+    }
+  ]
+}

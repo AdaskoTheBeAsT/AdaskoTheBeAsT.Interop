@@ -24,7 +24,7 @@ internal static class ExecutionHelpers
         // ExecutionWorker.InitializeAsync, and the TCS is built with RunContinuationsAsynchronously
         // so no caller context is captured or inlined.
 #pragma warning disable VSTHRD003
-#if NET6_0_OR_GREATER
+#if NET8_0_OR_GREATER
         return startupTask.WaitAsync(cancellationToken);
 #else
         return WaitAsyncPolyfillCoreAsync(startupTask, cancellationToken);
@@ -32,7 +32,7 @@ internal static class ExecutionHelpers
 #pragma warning restore VSTHRD003
     }
 
-#if !NET6_0_OR_GREATER
+#if !NET8_0_OR_GREATER
     private static async Task WaitAsyncPolyfillCoreAsync(Task task, CancellationToken cancellationToken)
     {
         // Safe to await a task produced outside this method (VSTHRD003 disabled): the input `task`

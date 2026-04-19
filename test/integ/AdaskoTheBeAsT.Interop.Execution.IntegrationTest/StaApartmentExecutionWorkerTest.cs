@@ -25,14 +25,16 @@ public sealed class StaApartmentExecutionWorkerTest
         await using var worker = new ExecutionWorker<IntegrationSession>(factory, options);
 
         var observedApartmentState = await worker.ExecuteAsync(
-            (_, _) => Thread.CurrentThread.GetApartmentState());
+            (_, _) => Thread.CurrentThread.GetApartmentState(),
+            cancellationToken: TestCt.Current);
 
         observedApartmentState.Should().Be(
             ApartmentState.STA,
             "UseStaThread=true on Windows must configure the dedicated worker thread as STA");
 
         var observedSession = await worker.ExecuteAsync(
-            (session, _) => session);
+            (session, _) => session,
+            cancellationToken: TestCt.Current);
 
         observedSession.OwnerApartmentState.Should().Be(
             ApartmentState.STA,
@@ -69,13 +71,14 @@ public sealed class StaApartmentExecutionWorkerTest
             workerIndex => factories[workerIndex],
             poolOptions);
 
-        await pool.InitializeAsync();
+        await pool.InitializeAsync(TestCt.Current);
 
         var observedApartmentStates = new List<ApartmentState>();
         for (var submissionIndex = 0; submissionIndex < WorkerCount * 4; submissionIndex++)
         {
             var observed = await pool.ExecuteAsync(
-                (_, _) => Thread.CurrentThread.GetApartmentState());
+                (_, _) => Thread.CurrentThread.GetApartmentState(),
+                cancellationToken: TestCt.Current);
             observedApartmentStates.Add(observed);
         }
 
@@ -91,7 +94,8 @@ public sealed class StaApartmentExecutionWorkerTest
         await using var worker = new ExecutionWorker<IntegrationSession>(factory);
 
         var observedApartmentState = await worker.ExecuteAsync(
-            (_, _) => Thread.CurrentThread.GetApartmentState());
+            (_, _) => Thread.CurrentThread.GetApartmentState(),
+            cancellationToken: TestCt.Current);
 
         observedApartmentState.Should().NotBe(
             ApartmentState.STA,

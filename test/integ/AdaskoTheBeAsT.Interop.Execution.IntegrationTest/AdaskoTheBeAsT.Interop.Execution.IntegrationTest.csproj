@@ -5,12 +5,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <!--
-      xUnit1051: integration tests deliberately pass CancellationToken.None to
-      exercise the production default-cancellation path; TestContext.Current is
-      an xunit.v3-only surface and would not work uniformly across the net462-
-      net481 targets that still use xunit v2.
       CC0030: a handful of computed-from-const values are flagged as "could be
       const" depending on compiler phase; allow locals for readability.
+      xUnit1051: retained until the two remaining no-CT submission paths that
+      cannot take TestContext.Current (e.g. fire-and-forget worker-thread
+      reentrancy delegates) are refactored; see TestCt.Current for the shared
+      xUnit v3 / v2 fork used by the common submission sites.
     -->
     <NoWarn>$(NoWarn);xUnit1051;CC0030</NoWarn>
   </PropertyGroup>

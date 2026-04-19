@@ -12,14 +12,18 @@ public sealed class ZeroAllocValueTaskTest
         await using var worker = new ExecutionWorker<IntegrationSession>(factory);
 
         // Warm up: first call may allocate the pooled instance.
-        _ = await worker.ExecuteValueAsync((session, _) => session.SessionId);
+        _ = await worker.ExecuteValueAsync(
+            (session, _) => session.SessionId,
+            cancellationToken: TestCt.Current);
 
         // Subsequent submission exercises the pooled path. We deliberately
         // avoid asserting IsCompletedSuccessfully on the returned struct —
         // the pooled IValueTaskSource state machine mandates one-shot
         // observation, and racing status checks against Execute on the
         // dedicated worker thread would be flaky.
-        var result = await worker.ExecuteValueAsync((session, _) => session.SessionId * 2);
+        var result = await worker.ExecuteValueAsync(
+            (session, _) => session.SessionId * 2,
+            cancellationToken: TestCt.Current);
         result.Should().BePositive();
     }
 
@@ -36,7 +40,9 @@ public sealed class ZeroAllocValueTaskTest
         for (var iteration = 0; iteration < 64; iteration++)
         {
             var iterationValue = iteration;
-            var result = await worker.ExecuteValueAsync((_, _) => iterationValue);
+            var result = await worker.ExecuteValueAsync(
+                (_, _) => iterationValue,
+                cancellationToken: TestCt.Current);
             result.Should().Be(iteration);
         }
     }
@@ -50,7 +56,9 @@ public sealed class ZeroAllocValueTaskTest
         var executed = 0;
         for (var iteration = 0; iteration < 32; iteration++)
         {
-            await worker.ExecuteValueAsync((_, _) => Interlocked.Increment(ref executed));
+            await worker.ExecuteValueAsync(
+                (_, _) => Interlocked.Increment(ref executed),
+                cancellationToken: TestCt.Current);
         }
 
         Volatile.Read(ref executed).Should().Be(32);
@@ -62,13 +70,17 @@ public sealed class ZeroAllocValueTaskTest
         var factory = new IntegrationSessionFactory();
         await using var worker = new ExecutionWorker<IntegrationSession>(factory);
 
-        Func<Task> failing = async () => _ = await worker.ExecuteValueAsync<int>((_, _) => throw new InvalidOperationException("boom"));
+        Func<Task> failing = async () => _ = await worker.ExecuteValueAsync<int>(
+            (_, _) => throw new InvalidOperationException("boom"),
+            cancellationToken: TestCt.Current);
 
         await failing.Should().ThrowAsync<InvalidOperationException>().WithMessage("boom");
 
         // Subsequent successful submission confirms the pool is healthy after
         // an exceptional Return path.
-        var afterFailure = await worker.ExecuteValueAsync((session, _) => session.SessionId);
+        var afterFailure = await worker.ExecuteValueAsync(
+            (session, _) => session.SessionId,
+            cancellationToken: TestCt.Current);
         afterFailure.Should().BePositive();
     }
 
@@ -88,7 +100,9 @@ public sealed class ZeroAllocValueTaskTest
         for (var taskIndex = 0; taskIndex < 32; taskIndex++)
         {
             var localIndex = taskIndex;
-            var result = await pool.ExecuteValueAsync((_, _) => localIndex * 2);
+            var result = await pool.ExecuteValueAsync(
+                (_, _) => localIndex * 2,
+                cancellationToken: TestCt.Current);
             result.Should().Be(localIndex * 2);
         }
     }

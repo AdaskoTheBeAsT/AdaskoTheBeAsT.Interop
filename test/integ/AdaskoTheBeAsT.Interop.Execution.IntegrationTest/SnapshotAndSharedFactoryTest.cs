@@ -13,8 +13,8 @@ public sealed class SnapshotAndSharedFactoryTest
             factory,
             new ExecutionWorkerOptions(name: "Snapshot Worker"));
 
-        await worker.InitializeAsync();
-        await worker.ExecuteAsync((_, _) => { });
+        await worker.InitializeAsync(TestCt.Current);
+        await worker.ExecuteAsync((_, _) => { }, cancellationToken: TestCt.Current);
 
         var snapshot = worker.GetSnapshot();
 
@@ -33,7 +33,7 @@ public sealed class SnapshotAndSharedFactoryTest
             factory,
             new ExecutionWorkerPoolOptions(workerCount: 3, name: "Shared Pool"));
 
-        await pool.InitializeAsync();
+        await pool.InitializeAsync(TestCt.Current);
 
         var snapshot = pool.GetSnapshot();
 
@@ -57,7 +57,7 @@ public sealed class SnapshotAndSharedFactoryTest
             factory,
             new ExecutionWorkerPoolOptions(workerCount: 3));
 
-        await pool.InitializeAsync();
+        await pool.InitializeAsync(TestCt.Current);
 
         factory.CreateCount.Should().Be(3);
     }
@@ -79,7 +79,7 @@ public sealed class SnapshotAndSharedFactoryTest
             new ExecutionWorkerPoolOptions(workerCount: 3, name: "Partial Fault Pool"));
         try
         {
-            Func<Task> initializeAction = () => pool.InitializeAsync(CancellationToken.None);
+            Func<Task> initializeAction = () => pool.InitializeAsync(TestCt.Current);
             await initializeAction.Should().ThrowAsync<InvalidOperationException>()
                 .WithMessage("*worker factory failure*");
 

@@ -27,7 +27,9 @@ public sealed class ScopedDiagnosticsTest
         {
             for (var i = 0; i < 3; i++)
             {
-                await worker.ExecuteAsync((session, _) => session.SessionId);
+                await worker.ExecuteAsync(
+                    (session, _) => session.SessionId,
+                    cancellationToken: TestCt.Current);
             }
         }
 
@@ -55,7 +57,9 @@ public sealed class ScopedDiagnosticsTest
         {
             for (var i = 0; i < 5; i++)
             {
-                await scopedWorker.ExecuteAsync((session, _) => session.SessionId);
+                await scopedWorker.ExecuteAsync(
+                    (session, _) => session.SessionId,
+                    cancellationToken: TestCt.Current);
             }
         }
 

@@ -12,7 +12,9 @@ public sealed class ValueTaskExecutionWorkerTest
         await using var worker = new ExecutionWorker<IntegrationSession>(factory);
 
         var executed = 0;
-        await worker.ExecuteValueAsync((_, _) => Interlocked.Increment(ref executed));
+        await worker.ExecuteValueAsync(
+            (_, _) => Interlocked.Increment(ref executed),
+            cancellationToken: TestCt.Current);
 
         Volatile.Read(ref executed).Should().Be(1);
     }
@@ -23,7 +25,9 @@ public sealed class ValueTaskExecutionWorkerTest
         var factory = new IntegrationSessionFactory();
         await using var worker = new ExecutionWorker<IntegrationSession>(factory);
 
-        var sessionId = await worker.ExecuteValueAsync((session, _) => session.SessionId);
+        var sessionId = await worker.ExecuteValueAsync(
+            (session, _) => session.SessionId,
+            cancellationToken: TestCt.Current);
 
         sessionId.Should().Be(1);
     }
@@ -37,7 +41,9 @@ public sealed class ValueTaskExecutionWorkerTest
             new ExecutionWorkerPoolOptions(workerCount: 2));
 
         var executed = 0;
-        await pool.ExecuteValueAsync((_, _) => Interlocked.Increment(ref executed));
+        await pool.ExecuteValueAsync(
+            (_, _) => Interlocked.Increment(ref executed),
+            cancellationToken: TestCt.Current);
 
         Volatile.Read(ref executed).Should().Be(1);
     }
@@ -50,7 +56,9 @@ public sealed class ValueTaskExecutionWorkerTest
             _ => factory,
             new ExecutionWorkerPoolOptions(workerCount: 2));
 
-        var result = await pool.ExecuteValueAsync((session, _) => session.SessionId * 10);
+        var result = await pool.ExecuteValueAsync(
+            (session, _) => session.SessionId * 10,
+            cancellationToken: TestCt.Current);
 
         result.Should().BePositive();
     }
@@ -61,7 +69,9 @@ public sealed class ValueTaskExecutionWorkerTest
         var factory = new IntegrationSessionFactory();
         await using var worker = new ExecutionWorker<IntegrationSession>(factory);
 
-        Func<Task> failing = async () => await worker.ExecuteValueAsync((_, _) => throw new InvalidOperationException("boom"));
+        Func<Task> failing = async () => await worker.ExecuteValueAsync(
+            (_, _) => throw new InvalidOperationException("boom"),
+            cancellationToken: TestCt.Current);
 
         await failing.Should().ThrowAsync<InvalidOperationException>().WithMessage("boom");
     }

@@ -15,7 +15,7 @@ public sealed class MultiThreadedExecutionWorkerTest
 
         var factory = new IntegrationSessionFactory();
         await using var worker = new ExecutionWorker<IntegrationSession>(factory);
-        await worker.InitializeAsync();
+        await worker.InitializeAsync(TestCt.Current);
 
         var observedThreadIds = new ConcurrentBag<int>();
         var observedSessionIds = new ConcurrentBag<int>();
@@ -32,7 +32,8 @@ public sealed class MultiThreadedExecutionWorkerTest
                         {
                             observedThreadIds.Add(Environment.CurrentManagedThreadId);
                             observedSessionIds.Add(session.SessionId);
-                        });
+                        },
+                        cancellationToken: TestCt.Current);
                 }
             });
         }
@@ -69,7 +70,7 @@ public sealed class MultiThreadedExecutionWorkerTest
             workerIndex => factories[workerIndex],
             poolOptions);
 
-        await pool.InitializeAsync();
+        await pool.InitializeAsync(TestCt.Current);
 
         var perThreadCompletedCount = new ConcurrentDictionary<int, int>();
 
@@ -87,7 +88,8 @@ public sealed class MultiThreadedExecutionWorkerTest
                                 session.OwnerThreadId,
                                 1,
                                 (_, currentCount) => currentCount + 1);
-                        });
+                        },
+                        cancellationToken: TestCt.Current);
                 }
             });
         }
@@ -127,7 +129,8 @@ public sealed class MultiThreadedExecutionWorkerTest
                 {
                     var capturedSubmissionIndex = submissionIndex;
                     await worker.ExecuteAsync(
-                        (_, _) => perSubmitterSequences[capturedSubmitterIndex].Add(capturedSubmissionIndex));
+                        (_, _) => perSubmitterSequences[capturedSubmitterIndex].Add(capturedSubmissionIndex),
+                        cancellationToken: TestCt.Current);
                 }
             });
         }

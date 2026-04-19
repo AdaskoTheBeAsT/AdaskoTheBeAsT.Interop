@@ -21,7 +21,8 @@ public sealed class SessionRecyclingExecutionWorkerTest
         for (var submissionIndex = 0; submissionIndex < TotalSubmissions; submissionIndex++)
         {
             var sessionId = await worker.ExecuteAsync(
-                (session, _) => session.SessionId);
+                (session, _) => session.SessionId,
+                cancellationToken: TestCt.Current);
             observedSessionIds.Add(sessionId);
         }
 
@@ -53,7 +54,8 @@ public sealed class SessionRecyclingExecutionWorkerTest
         await using var worker = new ExecutionWorker<IntegrationSession>(factory);
 
         var firstSessionId = await worker.ExecuteAsync(
-            (session, _) => session.SessionId);
+            (session, _) => session.SessionId,
+            cancellationToken: TestCt.Current);
 
         var recyclingOptions = new ExecutionRequestOptions(recycleSessionOnFailure: true);
 
@@ -62,13 +64,15 @@ public sealed class SessionRecyclingExecutionWorkerTest
             await worker.ExecuteAsync(
                 new Func<IntegrationSession, CancellationToken, int>(
                     (_, _) => throw new InvalidOperationException("boom")),
-                recyclingOptions);
+                recyclingOptions,
+                cancellationToken: TestCt.Current);
         };
 
         await faultingCall.Should().ThrowAsync<InvalidOperationException>();
 
         var recycledSessionId = await worker.ExecuteAsync(
-            (session, _) => session.SessionId);
+            (session, _) => session.SessionId,
+            cancellationToken: TestCt.Current);
 
         factory.CreateCount.Should().BeGreaterThanOrEqualTo(
             2,
@@ -85,19 +89,22 @@ public sealed class SessionRecyclingExecutionWorkerTest
         await using var worker = new ExecutionWorker<IntegrationSession>(factory);
 
         var firstSessionId = await worker.ExecuteAsync(
-            (session, _) => session.SessionId);
+            (session, _) => session.SessionId,
+            cancellationToken: TestCt.Current);
 
         Func<Task> faultingCall = async () =>
         {
             await worker.ExecuteAsync(
                 new Func<IntegrationSession, CancellationToken, int>(
-                    (_, _) => throw new InvalidOperationException("boom")));
+                    (_, _) => throw new InvalidOperationException("boom")),
+                cancellationToken: TestCt.Current);
         };
 
         await faultingCall.Should().ThrowAsync<InvalidOperationException>();
 
         var sameSessionId = await worker.ExecuteAsync(
-            (session, _) => session.SessionId);
+            (session, _) => session.SessionId,
+            cancellationToken: TestCt.Current);
 
         factory.CreateCount.Should().Be(
             1,

@@ -11,36 +11,3 @@
 
 # Default owner for everything in the repo
 *                           @AdaskoTheBeAsT adaskothebeast@gmail.com
-
-# Source, tests and packaging
-/src/                       @AdaskoTheBeAsT adaskothebeast@gmail.com
-/test/                      @AdaskoTheBeAsT adaskothebeast@gmail.com
-*.csproj                    @AdaskoTheBeAsT adaskothebeast@gmail.com
-Directory.Build.props       @AdaskoTheBeAsT adaskothebeast@gmail.com
-Directory.Build.targets     @AdaskoTheBeAsT adaskothebeast@gmail.com
-DeterministicBuild.targets  @AdaskoTheBeAsT adaskothebeast@gmail.com
-
-# CI, release + security surface
-/.github/                   @AdaskoTheBeAsT adaskothebeast@gmail.com
-/.github/workflows/         @AdaskoTheBeAsT adaskothebeast@gmail.com
-/.github/CODEOWNERS         @AdaskoTheBeAsT adaskothebeast@gmail.com
-
-# Pre-commit tooling and local tool manifest
-/.husky/                    @AdaskoTheBeAsT adaskothebeast@gmail.com
-/.config/dotnet-tools.json  @AdaskoTheBeAsT adaskothebeast@gmail.com
-
-# Docs, ADRs, changelog
-/docs/                      @AdaskoTheBeAsT adaskothebeast@gmail.com
-/README.md                  @AdaskoTheBeAsT adaskothebeast@gmail.com
-/CHANGELOG.md               @AdaskoTheBeAsT adaskothebeast@gmail.com
-
-# Licence, ruleset, analyzer configuration (change has wide blast radius)
-/LICENSE                    @AdaskoTheBeAsT adaskothebeast@gmail.com
-/AdaskoTheBeAsT.ruleset     @AdaskoTheBeAsT adaskothebeast@gmail.com
-/stylecop.json              @AdaskoTheBeAsT adaskothebeast@gmail.com
-/Settings.StyleCop          @AdaskoTheBeAsT adaskothebeast@gmail.com
-/SecurityCodeScan.config.yml @AdaskoTheBeAsT adaskothebeast@gmail.com
-/SonarQube.Analysis.xml     @AdaskoTheBeAsT adaskothebeast@gmail.com
-/coverage.settings.xml      @AdaskoTheBeAsT adaskothebeast@gmail.com
-/.editorconfig              @AdaskoTheBeAsT adaskothebeast@gmail.com
-/.gitignore                 @AdaskoTheBeAsT adaskothebeast@gmail.com

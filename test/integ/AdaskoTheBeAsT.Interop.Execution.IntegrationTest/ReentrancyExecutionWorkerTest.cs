@@ -13,7 +13,7 @@ public sealed class ReentrancyExecutionWorkerTest
 
         try
         {
-            await worker.InitializeAsync();
+            await worker.InitializeAsync(TestCt.Current);
 
             var reentrantDisposeCompleted = new TaskCompletionSource<bool>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
@@ -23,7 +23,8 @@ public sealed class ReentrancyExecutionWorkerTest
                 {
                     worker.Dispose();
                     reentrantDisposeCompleted.TrySetResult(true);
-                });
+                },
+                cancellationToken: TestCt.Current);
 
             var completedFirst = await Task.WhenAny(
                 reentrantDisposeCompleted.Task,
@@ -62,10 +63,12 @@ public sealed class ReentrancyExecutionWorkerTest
         await using var worker = new ExecutionWorker<IntegrationSession>(factory);
 
         var firstSessionId = await worker.ExecuteAsync(
-            (session, _) => session.SessionId);
+            (session, _) => session.SessionId,
+            cancellationToken: TestCt.Current);
 
         var secondSessionId = await worker.ExecuteAsync(
-            (session, _) => session.SessionId);
+            (session, _) => session.SessionId,
+            cancellationToken: TestCt.Current);
 
         firstSessionId.Should().Be(
             secondSessionId,

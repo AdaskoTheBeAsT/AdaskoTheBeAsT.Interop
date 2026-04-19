@@ -33,15 +33,22 @@ public static class ExecutionWorkerServiceCollectionExtensions
             throw new ArgumentNullException(nameof(services));
         }
 
+        // Use named options keyed by the closed TSession type so that multiple
+        // AddExecutionWorker<T>(...) calls with different TSession types do not
+        // stack their configuration delegates onto the single global
+        // IOptions<ExecutionWorkerOptions> instance (which would make the
+        // last-registered delegate win for every worker).
+        var optionsName = typeof(TSession).FullName ?? typeof(TSession).Name;
+
         if (configure is not null)
         {
-            services.Configure(configure);
+            services.Configure(optionsName, configure);
         }
 
         services.TryAddSingleton<IExecutionWorker<TSession>>(sp =>
         {
             var sessionFactory = sp.GetRequiredService<IExecutionSessionFactory<TSession>>();
-            var options = sp.GetService<IOptions<ExecutionWorkerOptions>>()?.Value ?? ExecutionWorkerOptions.Default;
+            var options = ResolveWorkerOptions(sp, optionsName, configure is not null);
             return new ExecutionWorker<TSession>(sessionFactory, options);
         });
 
@@ -70,17 +77,20 @@ public static class ExecutionWorkerServiceCollectionExtensions
             throw new ArgumentNullException(nameof(services));
         }
 
+        // Use named options keyed by the closed TSession type so that multiple
+        // AddExecutionWorkerPool<T>(...) calls with different TSession types do not
+        // stack their configuration delegates onto the single global
+        // IOptions<ExecutionWorkerPoolOptions> instance.
+        var optionsName = typeof(TSession).FullName ?? typeof(TSession).Name;
+
         if (configure is not null)
         {
-            services.Configure(configure);
+            services.Configure(optionsName, configure);
         }
 
         services.TryAddSingleton<IExecutionWorkerPool<TSession>>(sp =>
         {
-            var options = sp.GetService<IOptions<ExecutionWorkerPoolOptions>>()?.Value
-                ?? throw new InvalidOperationException(
-                    $"ExecutionWorkerPoolOptions is required. Call {nameof(AddExecutionWorkerPool)}"
-                    + " with a configuration delegate or register IOptions<ExecutionWorkerPoolOptions>.");
+            var options = ResolvePoolOptions(sp, optionsName, configure is not null);
 
             return new ExecutionWorkerPool<TSession>(
                 workerIndex => sp.GetRequiredService<IExecutionSessionFactory<TSession>>(),
@@ -88,5 +98,61 @@ public static class ExecutionWorkerServiceCollectionExtensions
         });
 
         return services;
+    }
+
+    private static ExecutionWorkerOptions ResolveWorkerOptions(
+        IServiceProvider sp,
+        string optionsName,
+        bool configureProvided)
+    {
+        if (configureProvided)
+        {
+            // Named pipeline: when the caller supplied a configure delegate we registered
+            // it as a named ExecutionWorkerOptions under typeof(TSession).FullName, so the
+            // delegate never collides with other TSession registrations.
+            var monitor = sp.GetService<IOptionsMonitor<ExecutionWorkerOptions>>();
+            if (monitor is not null)
+            {
+                return monitor.Get(optionsName);
+            }
+
+            var factory = sp.GetService<IOptionsFactory<ExecutionWorkerOptions>>();
+            if (factory is not null)
+            {
+                return factory.Create(optionsName);
+            }
+        }
+
+        // No per-TSession configure delegate — fall back to the classic unnamed
+        // IOptions<ExecutionWorkerOptions> pipeline so that consumers who pre-bind
+        // configuration globally (e.g. services.Configure<ExecutionWorkerOptions>(cfg))
+        // keep their existing behaviour. When even that is absent, use the defaults.
+        return sp.GetService<IOptions<ExecutionWorkerOptions>>()?.Value ?? ExecutionWorkerOptions.Default;
+    }
+
+    private static ExecutionWorkerPoolOptions ResolvePoolOptions(
+        IServiceProvider sp,
+        string optionsName,
+        bool configureProvided)
+    {
+        if (configureProvided)
+        {
+            var monitor = sp.GetService<IOptionsMonitor<ExecutionWorkerPoolOptions>>();
+            if (monitor is not null)
+            {
+                return monitor.Get(optionsName);
+            }
+
+            var factory = sp.GetService<IOptionsFactory<ExecutionWorkerPoolOptions>>();
+            if (factory is not null)
+            {
+                return factory.Create(optionsName);
+            }
+        }
+
+        return sp.GetService<IOptions<ExecutionWorkerPoolOptions>>()?.Value
+            ?? throw new InvalidOperationException(
+                $"ExecutionWorkerPoolOptions is required. Call {nameof(AddExecutionWorkerPool)}"
+                + " with a configuration delegate or register IOptions<ExecutionWorkerPoolOptions>.");
     }
 }

@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using AwesomeAssertions;
 using Xunit;
 
@@ -104,7 +103,12 @@ public sealed class ZeroAllocValueTaskTest
         await using var worker = new ExecutionWorker<IntegrationSession>(factory);
 
         using var cts = new CancellationTokenSource();
+#if NET8_0_OR_GREATER
         await cts.CancelAsync();
+#else
+        cts.Cancel();
+        await Task.CompletedTask;
+#endif
 
         var pending = worker.ExecuteValueAsync((_, _) => 42, cancellationToken: cts.Token);
         pending.IsCanceled.Should().BeTrue();
@@ -113,4 +117,3 @@ public sealed class ZeroAllocValueTaskTest
         await awaitCancelled.Should().ThrowAsync<OperationCanceledException>();
     }
 }
-#endif

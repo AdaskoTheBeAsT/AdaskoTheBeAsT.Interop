@@ -169,7 +169,6 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
         return workItem.Task;
     }
 
-#if NET8_0_OR_GREATER
     /// <summary>
     /// Zero-allocation hot-path equivalent of
     /// <see cref="ExecuteAsync(Action{TSession, CancellationToken}, ExecutionRequestOptions?, CancellationToken)"/>
@@ -264,7 +263,6 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
         Interlocked.Increment(ref _queueDepth);
         return new ValueTask<TResult>(workItem, workItem.Version);
     }
-#endif
 
     /// <summary>
     /// Asynchronously completes the work queue, cancels pending items, disposes

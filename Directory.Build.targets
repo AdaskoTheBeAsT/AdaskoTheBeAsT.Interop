@@ -14,10 +14,11 @@
       * sets `core.hooksPath` to `.husky` inside the local repo only (no global git config touched);
       * makes the hook scripts executable on POSIX.
 
-    Note on dotnet format: this repo intentionally does NOT run `dotnet format - -verify-no-changes`
-    in the hook because the tool's default conventions are not compatible with the established
-    `.editorconfig` / StyleCop style used here; enforcement is handled by
-    `TreatWarningsAsErrors=true` + the analyzer pack in the strict-build task.
+    Note on dotnet format: this repo intentionally does NOT run the `dotnet format` check with
+    the verify-no-changes flag (the flag is spelled with two dashes; literal "two-dashes" cannot
+    appear inside this XML comment per XML 1.0 sec. 2.5). The tool's default conventions are not
+    compatible with the established `.editorconfig` / StyleCop style used here; enforcement is
+    handled by `TreatWarningsAsErrors=true` + the analyzer pack in the strict-build task.
   -->
   <Target Name="HuskyInstall"
           BeforeTargets="Restore;CollectPackageReferences"

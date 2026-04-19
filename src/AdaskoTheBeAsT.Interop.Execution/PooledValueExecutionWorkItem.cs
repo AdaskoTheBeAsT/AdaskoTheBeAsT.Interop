@@ -1,4 +1,3 @@
-#if NET8_0_OR_GREATER
 using System.Collections.Concurrent;
 using System.Threading.Tasks.Sources;
 
@@ -186,4 +185,3 @@ internal sealed class PooledValueExecutionWorkItem<TSession, TResult>
         Pool.Enqueue(this);
     }
 }
-#endif

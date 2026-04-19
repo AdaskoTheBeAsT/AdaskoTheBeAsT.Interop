@@ -873,6 +873,239 @@ public sealed class ExecutionWorkerTest
         sessionFactory.CreateCount.Should().Be(1);
     }
 
+    [Fact]
+    public void ExecuteValueAsync_ShouldThrowWhenActionDelegateIsNull()
+    {
+        var sessionFactory = new TrackingSessionFactory();
+        using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+
+        Action call = () => _ = worker.ExecuteValueAsync((Action<TestSession, CancellationToken>)null!);
+
+        call.Should().Throw<ArgumentNullException>().WithParameterName("action");
+    }
+
+    [Fact]
+    public void ExecuteValueAsyncOfTResult_ShouldThrowWhenActionDelegateIsNull()
+    {
+        var sessionFactory = new TrackingSessionFactory();
+        using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+
+        Action call = () => _ = worker.ExecuteValueAsync<int>((Func<TestSession, CancellationToken, int>)null!);
+
+        call.Should().Throw<ArgumentNullException>().WithParameterName("action");
+    }
+
+    [Fact]
+#pragma warning disable AsyncFixer04
+    public async Task ExecuteValueAsync_ShouldReturnCanceledWhenTokenIsAlreadyCanceledAsync()
+    {
+        var sessionFactory = new TrackingSessionFactory();
+        using var cancellationTokenSource = new CancellationTokenSource();
+        await using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+
+        await CancelAsync(cancellationTokenSource);
+
+        var pending = worker.ExecuteValueAsync(
+            static (_, _) => { },
+            cancellationToken: cancellationTokenSource.Token);
+
+        pending.IsCanceled.Should().BeTrue();
+        sessionFactory.CreateCount.Should().Be(0);
+    }
+#pragma warning restore AsyncFixer04
+
+    [Fact]
+#pragma warning disable AsyncFixer04
+    public async Task ExecuteValueAsyncOfTResult_ShouldReturnCanceledWhenTokenIsAlreadyCanceledAsync()
+    {
+        var sessionFactory = new TrackingSessionFactory();
+        using var cancellationTokenSource = new CancellationTokenSource();
+        await using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+
+        await CancelAsync(cancellationTokenSource);
+
+        var pending = worker.ExecuteValueAsync(
+            static (session, _) => session.SessionId,
+            cancellationToken: cancellationTokenSource.Token);
+
+        pending.IsCanceled.Should().BeTrue();
+        sessionFactory.CreateCount.Should().Be(0);
+    }
+#pragma warning restore AsyncFixer04
+
+    [Fact]
+#pragma warning disable AsyncFixer04, xUnit1051
+    public async Task ExecuteValueAsync_ShouldFailWhenChannelIsClosedAsync()
+    {
+        var sessionFactory = new TrackingSessionFactory();
+        await using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+        worker.TryCompleteChannelForTesting().Should().BeTrue();
+
+        var pending = worker.ExecuteValueAsync(
+            static (_, _) => { },
+            cancellationToken: CancellationToken.None);
+
+        Func<Task> awaitFailure = async () => await pending;
+        await awaitFailure.Should().ThrowAsync<ObjectDisposedException>();
+    }
+#pragma warning restore AsyncFixer04, xUnit1051
+
+    [Fact]
+#pragma warning disable AsyncFixer04, xUnit1051
+    public async Task ExecuteValueAsyncOfTResult_ShouldFailWhenChannelIsClosedAsync()
+    {
+        var sessionFactory = new TrackingSessionFactory();
+        await using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+        worker.TryCompleteChannelForTesting().Should().BeTrue();
+
+        var pending = worker.ExecuteValueAsync(
+            static (session, _) => session.SessionId,
+            cancellationToken: CancellationToken.None);
+
+        Func<Task> awaitFailure = async () => _ = await pending;
+        await awaitFailure.Should().ThrowAsync<ObjectDisposedException>();
+    }
+#pragma warning restore AsyncFixer04, xUnit1051
+
+    [Fact]
+    public void ExecuteValueAsync_ShouldThrowObjectDisposedExceptionAfterDispose()
+    {
+#pragma warning disable IDISP016, IDISP017
+        var sessionFactory = new TrackingSessionFactory();
+        var worker = new ExecutionWorker<TestSession>(sessionFactory);
+        worker.Dispose();
+
+        Action call = () => _ = worker.ExecuteValueAsync(static (_, _) => { });
+#pragma warning restore IDISP016, IDISP017
+
+        call.Should().Throw<ObjectDisposedException>();
+    }
+
+    [Fact]
+    public Task InitializeAsync_ShouldReturnCancelledTaskForPreCancelledTokenAsync()
+    {
+        var sessionFactory = new TrackingSessionFactory();
+        using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+
+        using var cts = new CancellationTokenSource();
+#pragma warning disable VSTHRD103, S6966
+        cts.Cancel();
+#pragma warning restore VSTHRD103, S6966
+
+        // AsyncFixer04 disabled: we deliberately do not await the returned
+        // Task because the assertion is that a pre-cancelled token produces
+        // a synchronously-cancelled Task.FromCanceled result.
+#pragma warning disable AsyncFixer04
+        var task = worker.InitializeAsync(cts.Token);
+#pragma warning restore AsyncFixer04
+
+        task.IsCanceled.Should().BeTrue();
+        sessionFactory.CreateCount.Should().Be(0);
+        return Task.CompletedTask;
+    }
+
+    [Fact]
+    public void SetFatalFailure_ShouldRaiseWorkerFaultedEventOnlyOnce()
+    {
+        var sessionFactory = new TrackingSessionFactory();
+        using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+
+        var faultCount = 0;
+        worker.WorkerFaulted += (_, _) => Interlocked.Increment(ref faultCount);
+
+        SetFatalFailure(worker, new InvalidOperationException("first"));
+        SetFatalFailure(worker, new InvalidOperationException("second"));
+
+        faultCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ProcessWorkItem_ShouldSetActivityStatusForOkAndErrorOutcomesAsync()
+    {
+        var sourceName = "AdaskoTheBeAsT.Interop.Execution.Test.Activity." + Guid.NewGuid().ToString("N");
+        var recordedStatuses = new ConcurrentBag<ActivityStatusCode>();
+
+        // IDISP001/IDISP003/IDISP004/IDISP013/IDISP017 disabled: the diagnostics
+        // scope, listener, and worker are manually disposed in finally blocks
+        // to enforce teardown order (worker first so the activity loop drains,
+        // then listener, then diagnostics).
+#pragma warning disable IDISP001, IDISP003, IDISP004, IDISP013, IDISP017
+        var diagnostics = new ExecutionDiagnostics(sourceName);
+        var listener = new ActivityListener
+        {
+            ShouldListenTo = source => string.Equals(source.Name, sourceName, StringComparison.Ordinal),
+            Sample = static (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData,
+            ActivityStopped = activity => recordedStatuses.Add(activity.Status),
+        };
+        ActivitySource.AddActivityListener(listener);
+        try
+        {
+            var sessionFactory = new TrackingSessionFactory();
+            var worker = new ExecutionWorker<TestSession>(
+                sessionFactory,
+                new ExecutionWorkerOptions(diagnostics: diagnostics));
+            try
+            {
+#pragma warning disable xUnit1051
+                await worker.ExecuteAsync(static (_, _) => { });
+
+                Func<Task> failing = () => worker.ExecuteAsync(
+                    static (_, _) => throw new InvalidOperationException("boom"));
+                await failing.Should().ThrowAsync<InvalidOperationException>();
+#pragma warning restore xUnit1051
+
+                await WaitUntilAsync(() => recordedStatuses.Count >= 2);
+            }
+            finally
+            {
+                await worker.DisposeAsync();
+            }
+        }
+        finally
+        {
+            listener.Dispose();
+            diagnostics.Dispose();
+        }
+#pragma warning restore IDISP001, IDISP003, IDISP004, IDISP013, IDISP017
+
+        recordedStatuses.Should().Contain(ActivityStatusCode.Ok);
+        recordedStatuses.Should().Contain(ActivityStatusCode.Error);
+    }
+
+    [Fact]
+    public async Task Dispose_ShouldReturnWithinTimeoutWhenWorkerThreadIsBlockedAsync()
+    {
+        using var gate = new ManualResetEventSlim(false);
+        var sessionFactory = new BlockingSessionFactory(gate);
+
+        // This test deliberately exercises the synchronous worker Dispose
+        // timeout branch by wedging the worker thread in a blocking session
+        // factory; async disposal would bypass the timeout branch this test
+        // is asserting on.
+#pragma warning disable IDISP001, IDISP003, IDISP016, IDISP017, VSTHRD103, S6966, S125
+        var worker = new ExecutionWorker<TestSession>(
+            sessionFactory,
+            new ExecutionWorkerOptions(disposeTimeout: TimeSpan.FromMilliseconds(100)));
+        try
+        {
+            _ = worker.InitializeAsync(CancellationToken.None);
+            await Task.Delay(50, CancellationToken.None);
+
+            var stopwatch = Stopwatch.StartNew();
+            Action call = () => worker.Dispose();
+            call.Should().NotThrow();
+            stopwatch.Stop();
+
+            stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            gate.Set();
+            worker.Dispose();
+        }
+#pragma warning restore IDISP001, IDISP003, IDISP016, IDISP017, VSTHRD103, S6966, S125
+    }
+
     private static Task CancelAsync(CancellationTokenSource cancellationTokenSource)
     {
 #if NET8_0_OR_GREATER
@@ -978,5 +1211,25 @@ public sealed class ExecutionWorkerTest
         public int SessionId { get; } = sessionId;
 
         public int OwnerThreadId { get; } = ownerThreadId;
+    }
+
+    // A session factory whose CreateSession blocks on an externally-owned
+    // ManualResetEventSlim and deliberately ignores the cancellation token.
+    // Used to exercise the Dispose() timeout branch: the worker thread is
+    // wedged inside CreateSession so _workerExitCompletionSource is never
+    // signaled, causing disposeTask.Wait(timeout) to return false and
+    // Dispose() to abandon the wait cleanly.
+    private sealed class BlockingSessionFactory(ManualResetEventSlim gate) : IExecutionSessionFactory<TestSession>
+    {
+        public TestSession CreateSession(CancellationToken cancellationToken)
+        {
+            gate.Wait(CancellationToken.None);
+            return new TestSession(1, Environment.CurrentManagedThreadId);
+        }
+
+        public void DisposeSession(TestSession session)
+        {
+            _ = session ?? throw new ArgumentNullException(nameof(session));
+        }
     }
 }

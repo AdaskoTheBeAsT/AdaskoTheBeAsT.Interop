@@ -11,15 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### `AdaskoTheBeAsT.Interop.Execution` (core)
 
-- **Zero-allocation `ExecuteValueAsync` hot path** on `NET8_0_OR_GREATER`.
-  `ExecutionWorker<TSession>` and `ExecutionWorkerPool<TSession>` now expose
+- **Zero-allocation `ExecuteValueAsync` hot path on every supported TFM.**
+  `ExecutionWorker<TSession>` and `ExecutionWorkerPool<TSession>` expose
   instance `ExecuteValueAsync` overloads backed by pooled
   `IValueTaskSource<TResult>` / `IValueTaskSource` work items
-  (`ManualResetValueTaskSourceCore<T>`). The existing
-  `ExecuteValueAsync` extension methods automatically dispatch to the
-  zero-alloc instance methods when the receiver is a concrete worker/pool;
-  on older TFMs and for custom `IExecutionWorker<TSession>` implementations
-  the extensions keep wrapping the returned `Task` in a `ValueTask`.
+  (`ManualResetValueTaskSourceCore<T>`). The `IValueTaskSource` primitives
+  ship natively from `net8.0+` and are available on `net462`..`net481`
+  through the `System.Threading.Tasks.Extensions` NuGet facade (pulled
+  in transitively by `System.Threading.Channels`), so the same zero-alloc
+  code path runs on all nine TFMs — no `Task` → `ValueTask` wrapper
+  fallback anywhere, and no public `ExecutionWorkerValueTaskExtensions`
+  static class to duplicate the API surface.
   See [`docs/adr/0007-zero-alloc-value-task-source.md`](docs/adr/0007-zero-alloc-value-task-source.md).
 - **`ExecutionWorkerPool<TSession>` single-factory constructors.** Two new
   overloads accept a single `IExecutionSessionFactory<TSession>` that is
@@ -49,6 +51,81 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Shared`, removing the parallel-test-host race on the previously shared
   `Counter<long>` / `ObservableGauge<int>` state.
   See [`docs/adr/0009-scoped-execution-diagnostics.md`](docs/adr/0009-scoped-execution-diagnostics.md).
+
+### Tests
+
+- **Coverage raised further from ~92% to ~96.5% overall** by adding a second
+  round of 17 tests targeting the remaining defensive branches:
+  - `ExecutionWorker.InitializeAsync` pre-cancelled token fast-path
+    (`Task.FromCanceled`).
+  - `ExecutionWorker.SetFatalFailure` double-fire idempotency — the
+    `WorkerFaulted` event raises exactly once thanks to the CAS in
+    `RaiseFaultedOnce`.
+  - `ExecutionWorker.ProcessWorkItem` success + failure paths under a
+    registered `ActivityListener` (both `Activity.Status = Ok` and
+    `Activity.Status = Error` branches of the `SetStatus` calls).
+  - Synchronous `ExecutionWorker.Dispose` + `ExecutionWorkerPool.Dispose`
+    timeout branches: a blocking `IExecutionSessionFactory` wedges the
+    worker thread; `Dispose` abandons the wait after
+    `DisposeTimeout` without throwing.
+  - `ExecutionWorkerPool.IsAnyFaulted` returns `false` for a healthy pool
+    (post-loop `return false` branch).
+  - `ExecutionWorkerPool.SetWorkerThreadForTesting` argument-null guard.
+  - Pool `ExecuteAsync` and `ExecuteValueAsync` both throw
+    `InvalidOperationException("The worker scheduler returned null.")`
+    when a custom scheduler violates the contract.
+  - Direct unit tests on internal pooled work items covering:
+    explicit non-generic `IValueTaskSource` interface on
+    `PooledValueExecutionWorkItem<,>` (`GetStatus` / `OnCompleted` /
+    `GetResult`), `TrySetCanceled` → cancelled `ValueTask(<T>)`, the
+    stale-token guard in `GetResult` (`token != Version` mismatch), the
+    defensive `_action is null` branch (rented with a null delegate),
+    and the `Options` + `CancellationToken` property accessors.
+- **Coverage raised from ~86% to ~92% overall** by adding ~45 focused tests:
+  - `TrivialCoverageTest` and `DiagnosticsAndHelpersTest` cover all the
+    small defensive branches in `ExecutionWorkerOptions` /
+    `ExecutionWorkerPoolOptions` (negative `DisposeTimeout`, undefined
+    `SchedulingStrategy`, fresh-instance `Default`),
+    `WorkerFaultedEventArgs` (null-exception guard), `ExecutionHelpers`
+    (null-action guard), `ExecutionWorkerRegistration` (null-accessor
+    guard), `ExecutionDiagnostics` (null/whitespace source name,
+    idempotent Dispose, no-op Dispose on `Shared`, null-registration
+    guards), `ExecutionWorkerPoolSnapshot` (null-workers fallback,
+    aggregation), and both `RoundRobinWorkerScheduler` /
+    `LeastQueuedWorkerScheduler` (null / empty / single-worker /
+    all-faulted / healthy-lowest-depth paths).
+  - New `ExecutionWorkerHostingExtensionsTest` covers the two
+    `services is null` guards.
+  - New null / pre-cancelled / post-dispose / channel-closed tests for
+    `ExecutionWorker.ExecuteValueAsync` (void + `TResult`).
+  - Pool-level tests now exercise the shared-factory constructor
+    (with and without an explicit scheduler), `ExecuteValueAsync` void
+    and `TResult` routing through `SelectConcreteWorker`, and the
+    foreign-worker `InvalidOperationException` branch via a custom
+    `IExecutionWorker<T>` stub that is deliberately not an
+    `ExecutionWorker<T>`.
+  - DI-level tests now cover the `IOptionsFactory<T>` fallback branch
+    (by removing the open-generic `IOptionsMonitor<>` descriptor
+    before building the provider), the unnamed-`IOptions<T>` fallback
+    when no configure delegate is supplied, and the
+    `ExecutionWorkerOptions.Default` fallback when nothing at all is
+    registered. Same coverage is added for the pool pipeline.
+
+### Removed
+
+#### `AdaskoTheBeAsT.Interop.Execution` (core)
+
+- **`ExecutionWorkerValueTaskExtensions` public static class** — deleted.
+  Its only job was to dispatch `.ExecuteValueAsync(...)` calls on
+  `IExecutionWorker<T>` / `IExecutionWorkerPool<T>` to the concrete type's
+  instance method when on `net8.0+`, and on older TFMs to wrap
+  `ExecuteAsync(...)`'s `Task` in a `ValueTask` as a best-effort ergonomic
+  fallback (not zero-alloc). Now that the instance `ExecuteValueAsync`
+  overloads are unconditionally available on every TFM, the extension
+  added nothing but a second public-API surface and a `Task → ValueTask`
+  wrapper on the slow path for third-party `IExecutionWorker<T>`
+  implementations — callers can write `new ValueTask(worker.ExecuteAsync(...))`
+  themselves with identical semantics.
 
 ### Fixed
 
@@ -96,6 +173,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now aligned with the actual shipping 9-TFM matrix (`net10.0`,
   `net9.0`, `net8.0`, `net481`, `net48`, `net472`, `net471`, `net47`,
   `net462`).
+- **DI: `AddExecutionWorker<TSession>` / `AddExecutionWorkerPool<TSession>`
+  no longer leak `configure` delegates across different `TSession` types.**
+  Previously the extension called `services.Configure(configure)` which
+  pushed the delegate into the single global
+  `IOptions<ExecutionWorkerOptions>` (or `...PoolOptions`) pipeline, so
+  multiple `AddExecutionWorker<T>(...)` calls for different `TSession`
+  types stacked their delegates and produced a single merged options
+  instance shared by every worker (last-wins on `Name` + union of the
+  other properties). The extension now registers a *named* options entry
+  keyed by `typeof(TSession).FullName`, and the factory resolves via
+  `IOptionsMonitor<T>.Get(name)` so each `TSession` binding receives its
+  own isolated options. Consumers who only call `AddExecutionWorker<T>`
+  once (the common case) observe no behavioural change; consumers who
+  pre-bind configuration to the unnamed `IOptions<T>` pipeline (i.e. do
+  not pass a `configure` delegate) continue to get the existing shared
+  behaviour. Two new regression tests
+  (`AddExecutionWorker_ShouldIsolateOptionsAcrossDifferentSessionTypesAsync`,
+  `AddExecutionWorkerPool_ShouldIsolateOptionsAcrossDifferentSessionTypesAsync`)
+  pin the isolation contract.
 
 ## [1.0.0] - TBD
 

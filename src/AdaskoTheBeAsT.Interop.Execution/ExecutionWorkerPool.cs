@@ -273,7 +273,6 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
         return SelectWorker().ExecuteAsync(action, options, cancellationToken);
     }
 
-#if NET8_0_OR_GREATER
     /// <summary>
     /// Zero-allocation hot-path equivalent of
     /// <see cref="ExecuteAsync(Action{TSession, CancellationToken}, ExecutionRequestOptions?, CancellationToken)"/>.
@@ -308,7 +307,6 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
     {
         return SelectConcreteWorker().ExecuteValueAsync(action, options, cancellationToken);
     }
-#endif
 
     /// <summary>
     /// Asynchronously disposes every worker in parallel. Idempotent; every call awaits the
@@ -498,7 +496,6 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
         return selected;
     }
 
-#if NET8_0_OR_GREATER
     private ExecutionWorker<TSession> SelectConcreteWorker()
     {
         ThrowIfDisposed();
@@ -508,9 +505,10 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
 
         // Built-in schedulers always return one of the pool's own workers.
         // Custom schedulers are contractually required to do the same — if a
-        // caller wires a scheduler that returns foreign workers, the pool's
-        // pooled-value-task hot path routes back to the Task-based extension
-        // fallback (via the IExecutionWorker<TSession> path).
+        // caller wires a scheduler that returns a foreign IExecutionWorker,
+        // the zero-alloc ExecuteValueAsync hot path cannot dispatch through
+        // it because the IValueTaskSource pool is keyed to ExecutionWorker<T>,
+        // so we fail loudly rather than fall back to a slower Task wrapper.
         if (selected is ExecutionWorker<TSession> concrete)
         {
             return concrete;
@@ -519,7 +517,6 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
         throw new InvalidOperationException(
             "The worker scheduler returned a worker that is not owned by this pool.");
     }
-#endif
 
     private void ThrowIfDisposed()
     {

@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net10.0;net9.0;net8.0;net481;net48;net472;net471;net47;net462</TargetFrameworks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!--
+      CC0030: a handful of computed-from-const values are flagged as "could be
+      const" depending on compiler phase; allow locals for readability.
+      xUnit1051: retained until the two remaining no-CT submission paths that
+      cannot take TestContext.Current (e.g. fire-and-forget worker-thread
+      reentrancy delegates) are refactored; see TestCt.Current for the shared
+      xUnit v3 / v2 fork used by the common submission sites.
+    -->
+    <NoWarn>$(NoWarn);xUnit1051;CC0030</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net481' OR '$(TargetFramework)' == 'net48' OR '$(TargetFramework)' == 'net472' OR '$(TargetFramework)' == 'net471' OR '$(TargetFramework)' == 'net47' OR '$(TargetFramework)' == 'net462'">
+    <PackageReference Include="System.Threading.Channels" Version="10.0.6" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\AdaskoTheBeAsT.Interop.Execution\AdaskoTheBeAsT.Interop.Execution.csproj" />
+  </ItemGroup>
+
+</Project>

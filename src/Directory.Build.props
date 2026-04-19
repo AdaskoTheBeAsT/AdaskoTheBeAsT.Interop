@@ -1,0 +1,59 @@
+<Project>
+
+  <!--
+    Packaging props shared by every src/ project.
+    Imports the repository-root Directory.Build.props first so analyzer
+    configuration, LangVersion, Nullable, TreatWarningsAsErrors, etc. stay
+    defined in a single place.
+  -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <PropertyGroup>
+    <!-- Authoring / repository identity shared by every shipping package. -->
+    <Authors>Adam "AdaskoTheBeAsT" Pluciński</Authors>
+    <Copyright>Adam "AdaskoTheBeAsT" Pluciński</Copyright>
+    <PackageProjectUrl>https://github.com/AdaskoTheBeAsT/AdaskoTheBeAsT.Interop</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/AdaskoTheBeAsT/AdaskoTheBeAsT.Interop</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+
+    <!-- Build hygiene shared across packages. -->
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <AllowedOutputExtensionsInPackageBuildOutputFolder>$(AllowedOutputExtensionsInPackageBuildOutputFolder);.pdb</AllowedOutputExtensionsInPackageBuildOutputFolder>
+
+    <!-- License + README are packed from the repo root by every package. -->
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <!--
+    Load PackageReleaseNotes from the single repository CHANGELOG.md so the
+    three packages never drift out of sync. Uses MSBuild's property functions
+    so no custom task is required; if the file is missing the property silently
+    stays empty and the build still succeeds.
+
+    Only the most recent "## ..." section is extracted (first heading up to but
+    not including the next "## " line or end of file) so the NuGet metadata does
+    not bloat as the changelog grows across releases.
+  -->
+  <PropertyGroup Condition="Exists('$(MSBuildThisFileDirectory)..\CHANGELOG.md')">
+    <PackageReleaseNotes>$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)..\CHANGELOG.md')), '(?ms)^## .*?(?=^## |\z)').Value)</PackageReleaseNotes>
+  </PropertyGroup>
+
+  <!-- Flip deterministic + CI flags automatically on Azure Pipelines / GitHub Actions. -->
+  <PropertyGroup Condition="'$(TF_BUILD)' == 'true' OR '$(GITHUB_ACTIONS)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+  <!-- Pack LICENSE + README from the repo root so every package ships them. -->
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)..\LICENSE" Pack="true" PackagePath="" />
+    <None Include="$(MSBuildThisFileDirectory)..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>

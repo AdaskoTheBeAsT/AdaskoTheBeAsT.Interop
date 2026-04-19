@@ -1,4 +1,41 @@
 <Project>
   <!-- Deterministic build workaround -->
   <Import Project="$(MSBuildThisFileDirectory)DeterministicBuild.targets" />
+
+  <!--
+    Husky.Net pre-commit hook bootstrap.
+
+    Runs on restore for local developer workstations only (skipped in CI to keep agent restores fast
+    and to avoid touching the repo's git hook configuration from a build agent). Guards prevent the
+    target from running under CI, from inside the Husky.Net install itself, and from sub-projects
+    that do not live in the repo root (SolutionDir == empty).
+
+    The script delegates to `dotnet husky install` which:
+      * sets `core.hooksPath` to `.husky` inside the local repo only (no global git config touched);
+      * makes the hook scripts executable on POSIX.
+
+    Note on dotnet format: this repo intentionally does NOT run the `dotnet format` check with
+    the verify-no-changes flag (the flag is spelled with two dashes; literal "two-dashes" cannot
+    appear inside this XML comment per XML 1.0 sec. 2.5). The tool's default conventions are not
+    compatible with the established `.editorconfig` / StyleCop style used here; enforcement is
+    handled by `TreatWarningsAsErrors=true` + the analyzer pack in the strict-build task.
+  -->
+  <Target Name="HuskyInstall"
+          BeforeTargets="Restore;CollectPackageReferences"
+          Condition=" '$(HUSKY)' != '0' AND
+                      '$(CI)' != 'true' AND
+                      '$(TF_BUILD)' != 'true' AND
+                      '$(GITHUB_ACTIONS)' != 'true' AND
+                      '$(SolutionDir)' != '' AND
+                      Exists('$(MSBuildThisFileDirectory).husky\task-runner.json') AND
+                      !Exists('$(MSBuildThisFileDirectory).husky\_\husky.sh') ">
+    <Exec Command="dotnet tool restore"
+          WorkingDirectory="$(MSBuildThisFileDirectory)"
+          ContinueOnError="true"
+          IgnoreExitCode="true" />
+    <Exec Command="dotnet husky install"
+          WorkingDirectory="$(MSBuildThisFileDirectory)"
+          ContinueOnError="true"
+          IgnoreExitCode="true" />
+  </Target>
 </Project>

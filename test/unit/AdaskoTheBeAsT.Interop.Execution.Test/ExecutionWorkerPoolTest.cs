@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using AwesomeAssertions;
 using Xunit;
 
@@ -52,7 +53,7 @@ public sealed class ExecutionWorkerPoolTest
         var tracker = new PoolSessionTracker();
         var executedWorkerIndices = new ConcurrentBag<int>();
 
-        using var workerPool = CreateWorkerPool(1, tracker);
+        await using var workerPool = CreateWorkerPool(1, tracker);
         await workerPool.ExecuteAsync(
             (session, _) => executedWorkerIndices.Add(session.WorkerIndex),
             cancellationToken: CancellationToken.None);
@@ -67,7 +68,7 @@ public sealed class ExecutionWorkerPoolTest
     {
         var tracker = new PoolSessionTracker();
 
-        using var workerPool = CreateWorkerPool(3, tracker);
+        await using var workerPool = CreateWorkerPool(3, tracker);
         var results = await Task.WhenAll(
             Enumerable.Range(0, 9)
                 .Select(
@@ -100,7 +101,7 @@ public sealed class ExecutionWorkerPoolTest
 
         async Task ExecuteScenarioAsync()
         {
-            using var workerPool = CreateWorkerPool(2, tracker);
+            await using var workerPool = CreateWorkerPool(2, tracker);
             var firstWorker = await workerPool.ExecuteAsync(
                 static (session, _) => (session.WorkerIndex, session.SessionSequence),
                 cancellationToken: CancellationToken.None);
@@ -136,9 +137,44 @@ public sealed class ExecutionWorkerPoolTest
     public void Initialize_ShouldDisposeAlreadyStartedWorkersWhenOneWorkerFailsToStart()
     {
         var tracker = new PoolSessionTracker();
+        using var worker0Started = new ManualResetEventSlim(initialState: false);
+        using var worker2Started = new ManualResetEventSlim(initialState: false);
 
+        // With parallel pool initialization every worker's CreateSession runs on its own dedicated
+        // thread concurrently. Gate worker 1's failure behind worker 0 and worker 2 both having
+        // entered CreateSession, so the resulting CreateCount/DisposeCount observations are
+        // deterministic regardless of OS thread scheduling.
         using var workerPool = new ExecutionWorkerPool<PoolSession>(
-            workerIndex => new IndexedTrackingSessionFactory(workerIndex, tracker, failOnCreate: workerIndex == 1),
+            workerIndex => new IndexedTrackingSessionFactory(
+                workerIndex,
+                tracker,
+                failOnCreate: workerIndex == 1,
+                onCreate: () =>
+                {
+                    switch (workerIndex)
+                    {
+                        case 0:
+                            worker0Started.Set();
+                            break;
+                        case 2:
+                            worker2Started.Set();
+                            break;
+                        case 1:
+                            // MA0040 suppressed: the wait runs on the worker thread inside
+                            // the session-factory delegate (the production callback signature
+                            // does not carry a CancellationToken) and the assertion is that the
+                            // 5-second timeout elapses synchronously when workers 0/2 fail to
+                            // become ready. Propagating a token would either be impossible (no
+                            // token in scope) or defeat the deadlock-detection purpose.
+#pragma warning disable MA0040
+                            worker0Started.Wait(TimeSpan.FromSeconds(5));
+                            worker2Started.Wait(TimeSpan.FromSeconds(5));
+#pragma warning restore MA0040
+                            break;
+                        default:
+                            break;
+                    }
+                }),
             new ExecutionWorkerPoolOptions(3, "Execution Worker Pool"));
 
         var action = workerPool.Initialize;
@@ -148,8 +184,8 @@ public sealed class ExecutionWorkerPoolTest
         tracker.GetDisposeCount(0).Should().Be(1);
         tracker.GetCreateCount(1).Should().Be(1);
         tracker.GetDisposeCount(1).Should().Be(0);
-        tracker.GetCreateCount(2).Should().Be(0);
-        tracker.GetDisposeCount(2).Should().Be(0);
+        tracker.GetCreateCount(2).Should().Be(1);
+        tracker.GetDisposeCount(2).Should().Be(1);
     }
 
     [Fact]
@@ -157,7 +193,7 @@ public sealed class ExecutionWorkerPoolTest
     {
         var tracker = new PoolSessionTracker();
 
-        using var workerPool = new ExecutionWorkerPool<PoolSession>(
+        await using var workerPool = new ExecutionWorkerPool<PoolSession>(
             workerIndex => new IndexedTrackingSessionFactory(workerIndex, tracker),
             new ExecutionWorkerPoolOptions(1, " "));
 
@@ -230,12 +266,667 @@ public sealed class ExecutionWorkerPoolTest
     }
 
     [Fact]
-    public void TryIgnore_ShouldThrowWhenActionIsNull()
+    public void ExecuteAsync_ShouldThrowObjectDisposedExceptionAfterDispose()
     {
-        const Action? action = null;
-        var assertion = () => ExecutionWorkerPool<PoolSession>.TryIgnore(action!);
+        // IDISP016/IDISP017 disabled: this test is specifically verifying the
+        // post-Dispose() behavioural contract of ExecuteAsync, so we deliberately
+        // hold and invoke the pool after disposal instead of using a
+        // using-declaration.
+#pragma warning disable IDISP016, IDISP017
+        var tracker = new PoolSessionTracker();
+        var workerPool = CreateWorkerPool(2, tracker);
+        workerPool.Dispose();
 
-        assertion.Should().Throw<ArgumentNullException>().WithParameterName(nameof(action));
+        Action action = () => _ = workerPool.ExecuteAsync(
+            static (session, _) => session.WorkerIndex,
+            cancellationToken: CancellationToken.None);
+#pragma warning restore IDISP016, IDISP017
+
+        action.Should().Throw<ObjectDisposedException>();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ShouldThrowObjectDisposedExceptionAfterDisposeAsync()
+    {
+        // IDISP016/IDISP017 disabled: this test is specifically verifying the
+        // post-DisposeAsync behavioural contract of ExecuteAsync, so the pool
+        // is intentionally constructed without a using-declaration and used
+        // after disposal.
+#pragma warning disable IDISP016, IDISP017
+        var tracker = new PoolSessionTracker();
+        var workerPool = CreateWorkerPool(2, tracker);
+        await workerPool.DisposeAsync();
+
+        Action action = () => _ = workerPool.ExecuteAsync(
+            static (session, _) => session.WorkerIndex,
+            cancellationToken: CancellationToken.None);
+#pragma warning restore IDISP016, IDISP017
+
+        action.Should().Throw<ObjectDisposedException>();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ShouldHandleHighConcurrencyStressSubmissionsAsync()
+    {
+        const int SubmissionCount = 1_000;
+        const int WorkerCount = 4;
+        var tracker = new PoolSessionTracker();
+        await using var workerPool = CreateWorkerPool(WorkerCount, tracker);
+
+        var submissionTasks = new Task<int>[SubmissionCount];
+        Parallel.For(
+            0,
+            SubmissionCount,
+            index => submissionTasks[index] = workerPool.ExecuteAsync(
+                static (session, _) => session.WorkerIndex,
+                cancellationToken: CancellationToken.None));
+
+        var allTask = Task.WhenAll(submissionTasks);
+        var completed = await Task.WhenAny(allTask, Task.Delay(TimeSpan.FromSeconds(30), CancellationToken.None));
+        completed.Should().BeSameAs(allTask);
+
+        var results = await allTask;
+        results.Should().HaveCount(SubmissionCount);
+        results.Should().OnlyContain(static workerIndex => workerIndex >= 0 && workerIndex < WorkerCount);
+
+        var totalCreates = 0;
+        for (var workerIndex = 0; workerIndex < WorkerCount; workerIndex++)
+        {
+            totalCreates += tracker.GetCreateCount(workerIndex);
+        }
+
+        totalCreates.Should().BePositive().And.BeLessThanOrEqualTo(WorkerCount);
+    }
+
+    [Fact]
+    public async Task QueueDepth_ShouldAggregateAcrossWorkersAsync()
+    {
+        var tracker = new PoolSessionTracker();
+        var enteredActions = new ConcurrentBag<TaskCompletionSource<object?>>();
+        using var releaseWorkers = new ManualResetEventSlim();
+
+        await using var workerPool = new ExecutionWorkerPool<PoolSession>(
+            workerIndex => new IndexedTrackingSessionFactory(workerIndex, tracker),
+            new ExecutionWorkerPoolOptions(2, "Execution Worker Pool"));
+
+        workerPool.QueueDepth.Should().Be(0);
+
+        // AsyncFixer04 disabled: these tasks are stored in local arrays and awaited
+        // together via Task.WhenAll further down before the 'await using' disposes
+        // the pool. The analyzer does not track the lifetime through array indexing.
+#pragma warning disable AsyncFixer04
+        var blockingTasks = new Task[2];
+        for (var i = 0; i < blockingTasks.Length; i++)
+        {
+            var enteredGate = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            enteredActions.Add(enteredGate);
+            blockingTasks[i] = workerPool.ExecuteAsync(
+                (_, cancellationToken) =>
+                {
+                    enteredGate.TrySetResult(null);
+                    releaseWorkers.Wait(cancellationToken);
+                },
+                cancellationToken: CancellationToken.None);
+        }
+
+        await Task.WhenAll(enteredActions.Select(static gate => gate.Task));
+
+        var queued = new Task[4];
+        for (var i = 0; i < queued.Length; i++)
+        {
+            queued[i] = workerPool.ExecuteAsync(
+                static (_, _) => { },
+                cancellationToken: CancellationToken.None);
+        }
+#pragma warning restore AsyncFixer04
+
+        await WaitUntilAsync(() => workerPool.QueueDepth == 4);
+        workerPool.QueueDepth.Should().Be(4);
+
+        releaseWorkers.Set();
+        await Task.WhenAll(blockingTasks);
+        await Task.WhenAll(queued);
+
+        await WaitUntilAsync(() => workerPool.QueueDepth == 0);
+        workerPool.QueueDepth.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task WorkerFaulted_PoolShouldForwardPerWorkerEventAsync()
+    {
+        var tracker = new PoolSessionTracker();
+        await using var workerPool = new ExecutionWorkerPool<PoolSession>(
+            workerIndex => new IndexedTrackingSessionFactory(
+                workerIndex,
+                tracker,
+                failOnDispose: true),
+            new ExecutionWorkerPoolOptions(2, "Pool"));
+
+        var raised = new ConcurrentBag<WorkerFaultedEventArgs>();
+        workerPool.WorkerFaulted += (_, args) => raised.Add(args);
+
+        Func<Task> action = async () => await workerPool.ExecuteAsync<int>(
+            static (_, _) => throw new InvalidOperationException("boom"),
+            new ExecutionRequestOptions(recycleSessionOnFailure: true),
+            CancellationToken.None);
+
+        await action.Should().ThrowAsync<InvalidOperationException>().WithMessage("boom");
+        await WaitUntilAsync(() => workerPool.IsAnyFaulted);
+
+        workerPool.IsAnyFaulted.Should().BeTrue();
+        raised.Should().ContainSingle();
+        raised.Single().Exception.Should().BeOfType<InvalidOperationException>().Which.Message.Should().Be("dispose boom");
+        workerPool.WorkerFaults.Should().Contain(static fault => fault is InvalidOperationException);
+    }
+
+    [Fact]
+    public async Task LeastQueued_ShouldRouteToWorkerWithSmallestQueueAsync()
+    {
+        var tracker = new PoolSessionTracker();
+        using var releaseWorker0 = new ManualResetEventSlim();
+        var worker0Entered = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await using var workerPool = new ExecutionWorkerPool<PoolSession>(
+            workerIndex => new IndexedTrackingSessionFactory(workerIndex, tracker),
+            new ExecutionWorkerPoolOptions(2, "Pool", schedulingStrategy: SchedulingStrategy.LeastQueued));
+
+        // Park worker 0 on a blocking task so its queue stays non-empty.
+#pragma warning disable AsyncFixer04
+        var blocker = workerPool.ExecuteAsync(
+            (session, cancellationToken) =>
+            {
+                session.WorkerIndex.Should().Be(0);
+                worker0Entered.TrySetResult(null);
+                releaseWorker0.Wait(cancellationToken);
+            },
+            cancellationToken: CancellationToken.None);
+#pragma warning restore AsyncFixer04
+
+        await worker0Entered.Task;
+
+        // Submit a follow-up: least-queued should pick worker 1 (queue depth 0).
+        var pickedWorker = await workerPool.ExecuteAsync(
+            static (session, _) => session.WorkerIndex,
+            cancellationToken: CancellationToken.None);
+
+        pickedWorker.Should().Be(1);
+
+        releaseWorker0.Set();
+        await blocker;
+    }
+
+    [Fact]
+    public async Task LeastQueued_TiesShouldFallBackToRoundRobinAsync()
+    {
+        var tracker = new PoolSessionTracker();
+
+        await using var workerPool = new ExecutionWorkerPool<PoolSession>(
+            workerIndex => new IndexedTrackingSessionFactory(workerIndex, tracker),
+            new ExecutionWorkerPoolOptions(3, "Pool", schedulingStrategy: SchedulingStrategy.LeastQueued));
+
+        // Prime all workers so their sessions are created and steady-state queue depth is 0.
+        for (var i = 0; i < 3; i++)
+        {
+            _ = await workerPool.ExecuteAsync(
+                static (session, _) => session.WorkerIndex,
+                cancellationToken: CancellationToken.None);
+        }
+
+        // All queues now idle (depth 0). Submit N * 3 sequential requests and assert
+        // each worker gets exactly N of them.
+        const int CycleCount = 10;
+        var counts = new int[3];
+        for (var i = 0; i < CycleCount * 3; i++)
+        {
+            var workerIndex = await workerPool.ExecuteAsync(
+                static (session, _) => session.WorkerIndex,
+                cancellationToken: CancellationToken.None);
+            counts[workerIndex]++;
+        }
+
+        counts[0].Should().Be(CycleCount);
+        counts[1].Should().Be(CycleCount);
+        counts[2].Should().Be(CycleCount);
+    }
+
+    [Fact]
+    public async Task LeastQueued_ShouldSkipFaultedWorkerAsync()
+    {
+        var tracker = new PoolSessionTracker();
+
+        await using var workerPool = new ExecutionWorkerPool<PoolSession>(
+            workerIndex => new IndexedTrackingSessionFactory(
+                workerIndex,
+                tracker,
+                failOnDispose: workerIndex == 0),
+            new ExecutionWorkerPoolOptions(2, "Pool", schedulingStrategy: SchedulingStrategy.LeastQueued));
+
+        // Poison worker 0: force it into the faulted state via recycle-on-failure.
+        Func<Task> faultAction = async () => await workerPool.ExecuteAsync<int>(
+            static (session, _) =>
+            {
+                session.WorkerIndex.Should().Be(0);
+                throw new InvalidOperationException("boom");
+            },
+            new ExecutionRequestOptions(recycleSessionOnFailure: true),
+            CancellationToken.None);
+
+        await faultAction.Should().ThrowAsync<InvalidOperationException>().WithMessage("boom");
+        await WaitUntilAsync(() => workerPool.WorkerFaults[0] is not null);
+
+        // Every subsequent submission must route to worker 1.
+        for (var i = 0; i < 5; i++)
+        {
+            var workerIndex = await workerPool.ExecuteAsync(
+                static (session, _) => session.WorkerIndex,
+                cancellationToken: CancellationToken.None);
+            workerIndex.Should().Be(1);
+        }
+    }
+
+    [Fact]
+    public async Task RoundRobin_ShouldSkipFaultedWorkerAsync()
+    {
+        var tracker = new PoolSessionTracker();
+
+        await using var workerPool = new ExecutionWorkerPool<PoolSession>(
+            workerIndex => new IndexedTrackingSessionFactory(
+                workerIndex,
+                tracker,
+                failOnDispose: workerIndex == 0),
+            new ExecutionWorkerPoolOptions(2, "Pool", schedulingStrategy: SchedulingStrategy.RoundRobin));
+
+        Func<Task> faultAction = async () => await workerPool.ExecuteAsync<int>(
+            static (session, _) =>
+            {
+                session.WorkerIndex.Should().Be(0);
+                throw new InvalidOperationException("boom");
+            },
+            new ExecutionRequestOptions(recycleSessionOnFailure: true),
+            CancellationToken.None);
+
+        await faultAction.Should().ThrowAsync<InvalidOperationException>().WithMessage("boom");
+        await WaitUntilAsync(() => workerPool.WorkerFaults[0] is not null);
+
+        for (var i = 0; i < 5; i++)
+        {
+            var workerIndex = await workerPool.ExecuteAsync(
+                static (session, _) => session.WorkerIndex,
+                cancellationToken: CancellationToken.None);
+            workerIndex.Should().Be(1);
+        }
+    }
+
+    [Fact]
+    public async Task RoundRobin_ShouldDistributeEvenlyAsync()
+    {
+        var tracker = new PoolSessionTracker();
+
+        await using var workerPool = new ExecutionWorkerPool<PoolSession>(
+            workerIndex => new IndexedTrackingSessionFactory(workerIndex, tracker),
+            new ExecutionWorkerPoolOptions(3, "Pool", schedulingStrategy: SchedulingStrategy.RoundRobin));
+
+        const int CycleCount = 8;
+        var counts = new int[3];
+        for (var i = 0; i < CycleCount * 3; i++)
+        {
+            var workerIndex = await workerPool.ExecuteAsync(
+                static (session, _) => session.WorkerIndex,
+                cancellationToken: CancellationToken.None);
+            counts[workerIndex]++;
+        }
+
+        counts[0].Should().Be(CycleCount);
+        counts[1].Should().Be(CycleCount);
+        counts[2].Should().Be(CycleCount);
+    }
+
+    [Fact]
+    public void Constructor_ShouldThrowWhenSchedulingStrategyIsOutOfRange()
+    {
+        const SchedulingStrategy schedulingStrategy = (SchedulingStrategy)99;
+        var action = () => new ExecutionWorkerPoolOptions(1, schedulingStrategy: schedulingStrategy);
+
+        action.Should().Throw<ArgumentOutOfRangeException>()
+            .Which.ParamName.Should().Be(nameof(ExecutionWorkerPoolOptions.SchedulingStrategy));
+    }
+
+    [Fact]
+    public async Task CustomScheduler_ShouldReceiveWorkerSnapshotAndRouteSubmissionAsync()
+    {
+        var tracker = new PoolSessionTracker();
+        var scheduler = new RecordingScheduler();
+
+        await using var workerPool = new ExecutionWorkerPool<PoolSession>(
+            workerIndex => new IndexedTrackingSessionFactory(workerIndex, tracker),
+            new ExecutionWorkerPoolOptions(3, "Pool"),
+            scheduler);
+
+        _ = await workerPool.ExecuteAsync(
+            static (session, _) => session.WorkerIndex,
+            cancellationToken: CancellationToken.None);
+
+        scheduler.InvocationCount.Should().Be(1);
+        scheduler.LastSnapshotCount.Should().Be(3);
+        scheduler.LastSelected.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task CustomScheduler_ShouldRouteAllSubmissionsToTargetedWorkerAsync()
+    {
+        var tracker = new PoolSessionTracker();
+        var scheduler = new FixedIndexScheduler(targetIndex: 2);
+
+        await using var workerPool = new ExecutionWorkerPool<PoolSession>(
+            workerIndex => new IndexedTrackingSessionFactory(workerIndex, tracker),
+            new ExecutionWorkerPoolOptions(3, "Pool"),
+            scheduler);
+
+        for (var i = 0; i < 4; i++)
+        {
+            var workerIndex = await workerPool.ExecuteAsync(
+                static (session, _) => session.WorkerIndex,
+                cancellationToken: CancellationToken.None);
+            workerIndex.Should().Be(2);
+        }
+
+        tracker.GetCreateCount(0).Should().Be(0);
+        tracker.GetCreateCount(1).Should().Be(0);
+        tracker.GetCreateCount(2).Should().Be(1);
+    }
+
+    [Fact]
+    public void RoundRobinWorkerScheduler_ShouldThrowWhenWorkersListIsNull()
+    {
+        var scheduler = new RoundRobinWorkerScheduler<PoolSession>();
+
+        var action = () => scheduler.SelectWorker(null!);
+
+        action.Should().Throw<ArgumentNullException>().WithParameterName("workers");
+    }
+
+    [Fact]
+    public void LeastQueuedWorkerScheduler_ShouldThrowWhenWorkersListIsNull()
+    {
+        var scheduler = new LeastQueuedWorkerScheduler<PoolSession>();
+
+        var action = () => scheduler.SelectWorker(null!);
+
+        action.Should().Throw<ArgumentNullException>().WithParameterName("workers");
+    }
+
+    [Fact]
+    public void RoundRobinWorkerScheduler_ShouldThrowWhenWorkersListIsEmpty()
+    {
+        var scheduler = new RoundRobinWorkerScheduler<PoolSession>();
+
+        var action = () => scheduler.SelectWorker([]);
+
+        action.Should().Throw<ArgumentException>().WithParameterName("workers");
+    }
+
+    [Fact]
+    public void LeastQueuedWorkerScheduler_ShouldThrowWhenWorkersListIsEmpty()
+    {
+        var scheduler = new LeastQueuedWorkerScheduler<PoolSession>();
+
+        var action = () => scheduler.SelectWorker([]);
+
+        action.Should().Throw<ArgumentException>().WithParameterName("workers");
+    }
+
+    [Fact]
+    public void SharedFactoryConstructor_ShouldThrowWhenSessionFactoryIsNull()
+    {
+        const IExecutionSessionFactory<PoolSession>? sessionFactory = null;
+        var action = () =>
+        {
+            using var ignored = new ExecutionWorkerPool<PoolSession>(
+                sessionFactory!,
+                new ExecutionWorkerPoolOptions(1));
+        };
+
+        action.Should().Throw<ArgumentNullException>()
+            .WithParameterName(nameof(sessionFactory));
+    }
+
+    [Fact]
+    public void SharedFactoryConstructorWithScheduler_ShouldThrowWhenSessionFactoryIsNull()
+    {
+        const IExecutionSessionFactory<PoolSession>? sessionFactory = null;
+        var action = () =>
+        {
+            using var ignored = new ExecutionWorkerPool<PoolSession>(
+                sessionFactory!,
+                new ExecutionWorkerPoolOptions(1),
+                new LeastQueuedWorkerScheduler<PoolSession>());
+        };
+
+        action.Should().Throw<ArgumentNullException>()
+            .WithParameterName(nameof(sessionFactory));
+    }
+
+    [Fact]
+    public async Task SharedFactoryConstructor_ShouldReuseFactoryAcrossAllWorkersAsync()
+    {
+        var tracker = new PoolSessionTracker();
+        var sharedFactory = new IndexedTrackingSessionFactory(0, tracker);
+
+        await using var workerPool = new ExecutionWorkerPool<PoolSession>(
+            sharedFactory,
+            new ExecutionWorkerPoolOptions(3, "Shared Factory Pool"));
+
+        var results = await Task.WhenAll(
+            Enumerable.Range(0, 3)
+                .Select(
+                    _ => workerPool.ExecuteAsync(
+                        static (session, _) => session.WorkerIndex,
+                        cancellationToken: CancellationToken.None)));
+
+        // Every worker used the same factory - it was constructed with workerIndex 0
+        // so every session reports WorkerIndex == 0 regardless of the serving worker.
+        results.Should().OnlyContain(static workerIndex => workerIndex == 0);
+        workerPool.WorkerCount.Should().Be(3);
+    }
+
+    [Fact]
+    public async Task SharedFactoryConstructorWithScheduler_ShouldHonourCustomSchedulerAsync()
+    {
+        var tracker = new PoolSessionTracker();
+        var sharedFactory = new IndexedTrackingSessionFactory(0, tracker);
+
+        await using var workerPool = new ExecutionWorkerPool<PoolSession>(
+            sharedFactory,
+            new ExecutionWorkerPoolOptions(3, "Shared Factory Scheduler Pool"),
+            new FixedIndexScheduler(targetIndex: 1));
+
+        await workerPool.ExecuteAsync(
+            static (_, _) => { },
+            cancellationToken: CancellationToken.None);
+
+        // FixedIndexScheduler routes every submission to worker #1 even though
+        // the factory is shared; a successful execution proves that path.
+        workerPool.WorkerCount.Should().Be(3);
+    }
+
+    [Fact]
+    public async Task ExecuteValueAsync_ShouldRoutesThroughConcreteWorkerAsync()
+    {
+        var tracker = new PoolSessionTracker();
+        await using var workerPool = CreateWorkerPool(2, tracker);
+
+        await workerPool.ExecuteValueAsync(
+            static (_, _) => { },
+            cancellationToken: CancellationToken.None);
+
+        // A successful await proves the zero-alloc pool path (SelectConcreteWorker ->
+        // ExecutionWorker.ExecuteValueAsync) executed end-to-end.
+        (tracker.GetCreateCount(0) + tracker.GetCreateCount(1)).Should().BePositive();
+    }
+
+    [Fact]
+    public async Task ExecuteValueAsyncOfTResult_ShouldReturnDelegateResultAsync()
+    {
+        var tracker = new PoolSessionTracker();
+        await using var workerPool = CreateWorkerPool(2, tracker);
+
+        var result = await workerPool.ExecuteValueAsync(
+            static (session, _) => session.WorkerIndex,
+            cancellationToken: CancellationToken.None);
+
+        // Zero-alloc generic pool path.
+        result.Should().BeOneOf(0, 1);
+    }
+
+    [Fact]
+    public async Task ExecuteValueAsync_ShouldThrowWhenSchedulerReturnsForeignWorkerAsync()
+    {
+        var tracker = new PoolSessionTracker();
+        await using var foreignWorker = new ForeignExecutionWorker();
+        var foreignScheduler = new ForeignWorkerScheduler(foreignWorker);
+
+        await using var workerPool = new ExecutionWorkerPool<PoolSession>(
+            workerIndex => new IndexedTrackingSessionFactory(workerIndex, tracker),
+            new ExecutionWorkerPoolOptions(1, "Foreign Worker Pool"),
+            foreignScheduler);
+
+        // CA2012 disabled: the test's whole point is that ExecuteValueAsync throws
+        // synchronously before producing a usable ValueTask, so the discard is
+        // intentional - awaiting cannot happen.
+#pragma warning disable CA2012
+        Action call = () => _ = workerPool.ExecuteValueAsync(
+            static (_, _) => { },
+            cancellationToken: CancellationToken.None);
+#pragma warning restore CA2012
+
+        call.Should().Throw<InvalidOperationException>()
+            .WithMessage("*not owned by this pool*");
+        await Task.CompletedTask;
+    }
+
+    [Fact]
+    public void IsAnyFaulted_ShouldBeFalseForHealthyPool()
+    {
+        var tracker = new PoolSessionTracker();
+
+        // RCS1261/MA0042 suppressed: the fact is intentionally synchronous; converting
+        // to async Task would prevent asserting on IsAnyFaulted before awaiting anything
+        // and would cost an unnecessary scheduler hop. Sync Dispose is safe for a healthy
+        // pool: the dedicated worker threads observe cancellation and exit promptly.
+#pragma warning disable RCS1261, MA0042
+        using var workerPool = CreateWorkerPool(2, tracker);
+#pragma warning restore RCS1261, MA0042
+
+        workerPool.IsAnyFaulted.Should().BeFalse();
+    }
+
+    [Fact]
+    public void SetWorkerThreadForTesting_ShouldThrowWhenWorkerThreadIsNull()
+    {
+        var tracker = new PoolSessionTracker();
+
+        // RCS1261/MA0042 suppressed: sync-by-design - the fact asserts a synchronous
+        // ArgumentNullException on an invalid call and must not turn async.
+#pragma warning disable RCS1261, MA0042
+        using var workerPool = CreateWorkerPool(1, tracker);
+#pragma warning restore RCS1261, MA0042
+
+        Action call = () => workerPool.SetWorkerThreadForTesting(0, workerThread: null!);
+
+        call.Should().Throw<ArgumentNullException>().WithParameterName("workerThread");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ShouldThrowInvalidOperationWhenSchedulerReturnsNullAsync()
+    {
+        var tracker = new PoolSessionTracker();
+        var nullScheduler = new NullReturningScheduler();
+
+        await using var workerPool = new ExecutionWorkerPool<PoolSession>(
+            workerIndex => new IndexedTrackingSessionFactory(workerIndex, tracker),
+            new ExecutionWorkerPoolOptions(1, "Null Scheduler Pool"),
+            nullScheduler);
+
+        Func<Task> call = async () => await workerPool.ExecuteAsync(
+            static (_, _) => { },
+            cancellationToken: CancellationToken.None);
+
+        await call.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*scheduler returned null*");
+    }
+
+    [Fact]
+    public async Task ExecuteValueAsync_ShouldThrowInvalidOperationWhenSchedulerReturnsNullAsync()
+    {
+        var tracker = new PoolSessionTracker();
+        var nullScheduler = new NullReturningScheduler();
+
+        await using var workerPool = new ExecutionWorkerPool<PoolSession>(
+            workerIndex => new IndexedTrackingSessionFactory(workerIndex, tracker),
+            new ExecutionWorkerPoolOptions(1, "Null Scheduler Pool"),
+            nullScheduler);
+
+        // CA2012 disabled: the test asserts that ExecuteValueAsync throws
+        // synchronously when the scheduler returns null; the discarded
+        // ValueTask is never produced.
+#pragma warning disable CA2012
+        Action call = () => _ = workerPool.ExecuteValueAsync(
+            static (_, _) => { },
+            cancellationToken: CancellationToken.None);
+#pragma warning restore CA2012
+
+        call.Should().Throw<InvalidOperationException>()
+            .WithMessage("*scheduler returned null*");
+        await Task.CompletedTask;
+    }
+
+    [Fact]
+    public async Task Dispose_ShouldReturnWithinTimeoutWhenWorkerThreadIsBlockedAsync()
+    {
+        using var gate = new ManualResetEventSlim(initialState: false);
+        var tracker = new PoolSessionTracker();
+
+        // This test deliberately exercises the synchronous pool Dispose
+        // timeout branch by wedging the single worker's session factory on a
+        // gate that the test only releases in the finally block; async
+        // disposal would bypass the timeout branch this test is asserting on.
+#pragma warning disable IDISP001, IDISP003, IDISP016, IDISP017, VSTHRD103, S6966, S125, MA0042, RCS1261
+        var workerPool = new ExecutionWorkerPool<PoolSession>(
+            workerIndex => new BlockingPoolSessionFactory(workerIndex, tracker, gate),
+            new ExecutionWorkerPoolOptions(
+                workerCount: 1,
+                name: "Blocking Pool",
+                disposeTimeout: TimeSpan.FromMilliseconds(100)));
+        try
+        {
+            _ = workerPool.InitializeAsync(CancellationToken.None);
+            await Task.Delay(50, CancellationToken.None);
+
+            var stopwatch = Stopwatch.StartNew();
+            Action call = () => workerPool.Dispose();
+            call.Should().NotThrow();
+            stopwatch.Stop();
+
+            stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(5));
+        }
+        finally
+        {
+            gate.Set();
+            workerPool.Dispose();
+        }
+#pragma warning restore IDISP001, IDISP003, IDISP016, IDISP017, VSTHRD103, S6966, S125, MA0042, RCS1261
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> predicate)
+    {
+        var condition = predicate ?? throw new ArgumentNullException(nameof(predicate));
+
+        for (var attempt = 0; attempt < 500 && !condition(); attempt++)
+        {
+            await Task.Delay(10, CancellationToken.None);
+        }
+
+        condition().Should().BeTrue();
     }
 
     private static ExecutionWorkerPool<PoolSession> CreateWorkerPool(
@@ -320,5 +1011,121 @@ public sealed class ExecutionWorkerPoolTest
         public int SessionSequence { get; } = sessionSequence;
 
         public int OwnerThreadId { get; } = ownerThreadId;
+    }
+
+    private sealed class RecordingScheduler : IWorkerScheduler<PoolSession>
+    {
+        private readonly System.Collections.Concurrent.ConcurrentQueue<int> _snapshotCounts = new();
+        private readonly System.Collections.Concurrent.ConcurrentQueue<IExecutionWorker<PoolSession>> _selectedWorkers = new();
+        private int _invocationCount;
+
+        public int InvocationCount => Volatile.Read(ref _invocationCount);
+
+        public int LastSnapshotCount => _snapshotCounts.TryPeek(out var value) ? value : 0;
+
+        public IExecutionWorker<PoolSession>? LastSelected =>
+            _selectedWorkers.TryPeek(out var value) ? value : null;
+
+        public IExecutionWorker<PoolSession> SelectWorker(IReadOnlyList<IExecutionWorker<PoolSession>> workers)
+        {
+            Interlocked.Increment(ref _invocationCount);
+            var selected = workers[0];
+            _snapshotCounts.Enqueue(workers.Count);
+            _selectedWorkers.Enqueue(selected);
+            return selected;
+        }
+    }
+
+    private sealed class FixedIndexScheduler(int targetIndex) : IWorkerScheduler<PoolSession>
+    {
+        public IExecutionWorker<PoolSession> SelectWorker(IReadOnlyList<IExecutionWorker<PoolSession>> workers)
+        {
+            return workers[targetIndex];
+        }
+    }
+
+    private sealed class ForeignWorkerScheduler(IExecutionWorker<PoolSession> foreignWorker) : IWorkerScheduler<PoolSession>
+    {
+        public IExecutionWorker<PoolSession> SelectWorker(IReadOnlyList<IExecutionWorker<PoolSession>> workers) => foreignWorker;
+    }
+
+    // Scheduler that violates the IWorkerScheduler<T> contract by returning null.
+    // The pool's SelectWorker / SelectConcreteWorker paths are contractually
+    // required to wrap this into an InvalidOperationException so callers get a
+    // deterministic error instead of a later NullReferenceException.
+    private sealed class NullReturningScheduler : IWorkerScheduler<PoolSession>
+    {
+        public IExecutionWorker<PoolSession> SelectWorker(IReadOnlyList<IExecutionWorker<PoolSession>> workers) => null!;
+    }
+
+    // Session factory whose CreateSession blocks on an externally-owned gate
+    // while deliberately ignoring the cancellation token. Used only by the
+    // pool Dispose-timeout test to wedge the worker thread.
+    private sealed class BlockingPoolSessionFactory(
+        int workerIndex,
+        PoolSessionTracker tracker,
+        ManualResetEventSlim gate) : IExecutionSessionFactory<PoolSession>
+    {
+        private readonly PoolSessionTracker _tracker = tracker ?? throw new ArgumentNullException(nameof(tracker));
+
+        public PoolSession CreateSession(CancellationToken cancellationToken)
+        {
+            gate.Wait(CancellationToken.None);
+            var sessionSequence = _tracker.IncrementCreateCount(workerIndex);
+            return new PoolSession(workerIndex, sessionSequence, Environment.CurrentManagedThreadId);
+        }
+
+        public void DisposeSession(PoolSession session)
+        {
+            _ = session ?? throw new ArgumentNullException(nameof(session));
+            _tracker.IncrementDisposeCount(workerIndex);
+        }
+    }
+
+    // A minimal IExecutionWorker<PoolSession> implementation that is NOT a concrete
+    // ExecutionWorker<TSession>. The pool's zero-alloc SelectConcreteWorker path
+    // is keyed off this exact type, so returning this stub triggers the
+    // "not owned by this pool" InvalidOperationException branch.
+    private sealed class ForeignExecutionWorker : IExecutionWorker<PoolSession>
+    {
+        public event EventHandler<WorkerFaultedEventArgs>? WorkerFaulted;
+
+        public string? Name => "foreign";
+
+        public int QueueDepth => 0;
+
+        public bool IsFaulted => false;
+
+        public Exception? Fault => null;
+
+        public ExecutionWorkerSnapshot GetSnapshot() => new(Name, QueueDepth, IsFaulted, Fault);
+
+        public void Initialize()
+        {
+        }
+
+        public Task InitializeAsync(CancellationToken cancellationToken = default)
+        {
+            _ = WorkerFaulted;
+            return Task.CompletedTask;
+        }
+
+        public Task ExecuteAsync(
+            Action<PoolSession, CancellationToken> action,
+            ExecutionRequestOptions? options = null,
+            CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
+
+        public Task<TResult> ExecuteAsync<TResult>(
+            Func<PoolSession, CancellationToken, TResult> action,
+            ExecutionRequestOptions? options = null,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(default(TResult)!);
+
+        public ValueTask DisposeAsync() => default;
+
+        public void Dispose()
+        {
+        }
     }
 }

@@ -21,7 +21,10 @@ Gather the current SonarCloud status for a repository or explicit project key an
 ## Workflow
 
 1. Discover the SonarCloud project key if the user did not provide it.
-   - Check repository config first:
+   - values are:
+     - organization key = adaskothebeast-github
+     - sonar project key = AdaskoTheBeAsT_AdaskoTheBeAsT.Interop
+   - Check repository config second:
      - `.vscode/settings.json`
      - `.github/workflows/*.yml`
      - `SonarQube.Analysis.xml`

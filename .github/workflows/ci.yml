@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [ main ]
     tags:
       - "v*"
 
@@ -22,6 +22,10 @@ jobs:
       solution_name: ${{ vars.SOLUTION_NAME }}
       sonar_organization: ${{ vars.SONAR_ORGANIZATION }}
       sonar_project_key: ${{ vars.SONAR_PROJECT_KEY }}
+      tool_version_dotnet_coverage: ${{ vars.TOOL_VERSION_DOTNET_COVERAGE }}
+      tool_version_reportgenerator: ${{ vars.TOOL_VERSION_REPORTGENERATOR }}
+      tool_version_resharper: ${{ vars.TOOL_VERSION_RESHARPER }}
+      tool_version_sonar_scanner: ${{ vars.TOOL_VERSION_SONAR_SCANNER }}
       use_global_json: ${{ vars.USE_GLOBAL_JSON == 'true' }}
     secrets:
       sonar_token: ${{ secrets.SONAR_TOKEN }}

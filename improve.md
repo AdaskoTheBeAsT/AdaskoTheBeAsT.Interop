@@ -19,7 +19,7 @@
       per-worker Fault/IsFaulted surfaced on the pool; `SetFatalFailure` now dispatches the event BEFORE
       writing the volatile fault, so any observer that sees `IsFaulted == true` has also seen every
       `WorkerFaulted` subscriber complete.
-   •  Cross-TFM discipline (10/10): 9 TFMs (net462→net10, netstandard2.0) built with TreatWarningsAsErrors=true, 
+   •  Cross-TFM discipline (10/10): 9 TFMs (net462→net10) built with TreatWarningsAsErrors=true, 
       ContinuousIntegrationBuild=true, every polyfill gated (IsExternalInit), conditional package refs for 
       System.Threading.Channels/DiagnosticSource.
    •  Observability (9/10 — ✅ **upgraded** from 8/10 after ADR-0003 + ADR-0009): ActivitySource + Meter

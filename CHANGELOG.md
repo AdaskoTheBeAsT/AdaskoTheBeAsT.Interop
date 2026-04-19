@@ -65,6 +65,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that had not yet been produced. `WorkerFaultedEventArgs` still carries
   the exception, so event handlers do not rely on `IsFaulted` / `Fault`
   inside their own scope.
+- **`ExecutionWorkerPool<TSession>.Dispose` / `DisposeAsync` now share a
+  single in-flight drain `Task`.** Previously a caller whose synchronous
+  `Dispose()` timed out via `DisposeTimeout` would have the `_asyncDisposed`
+  interlocked flag flipped to 1, so any subsequent `await pool.DisposeAsync()`
+  became an instant no-op even though the background drain was still
+  running. The pool now caches the dispose `Task` on first invocation
+  behind `_disposeLock`, and both the sync and async paths await the same
+  instance — callers who await `DisposeAsync()` after a timed-out
+  `Dispose()` correctly observe drain completion (or the fault) instead of
+  a silent early return.
+- **`MeterSnapshot.Last()` determinism.** The test helper used a
+  `ConcurrentBag<RecordedMeasurement>` whose enumeration order is
+  thread-local-stack-based, not insertion-ordered. `Last()` therefore
+  returned whichever thread's local slot happened to be iterated last —
+  non-deterministic, and the root cause of intermittent flakes on
+  telemetry assertions under parallel test-host load. Replaced with a
+  coarse-locked `List<T>` whose reverse-iteration returns the strictly
+  last-inserted matching measurement.
+- **`ExecutionWorkerOptions.Default` is no longer a mutable shared
+  singleton.** Changed from `static ExecutionWorkerOptions Default { get; } = new();`
+  to `static ExecutionWorkerOptions Default => new();` so every fallback
+  site (null-coalescing path in `ExecutionWorker` ctor; DI extension
+  fallback) receives a fresh instance. Prevents accidental global-state
+  poisoning via e.g. `ExecutionWorkerOptions.Default.DisposeTimeout = TimeSpan.Zero`.
+- **NuGet package metadata mismatch.** All three packages'
+  `<Description>` strings, the README TFM matrix, and the DI-test
+  conditional `ItemGroup` still mentioned `netstandard2.0`, which was
+  dropped from `TargetFrameworks` earlier. Descriptions and metadata are
+  now aligned with the actual shipping 9-TFM matrix (`net10.0`,
+  `net9.0`, `net8.0`, `net481`, `net48`, `net472`, `net471`, `net47`,
+  `net462`).
 
 ## [1.0.0] - TBD
 
@@ -116,8 +147,7 @@ Initial public release of the `AdaskoTheBeAsT.Interop.Execution` family.
   - stable public `ExecutionDiagnosticNames` constants so telemetry
     consumers never hardcode strings.
 - Multi-target matrix: `net10.0`, `net9.0`, `net8.0`, `net481`, `net48`,
-  `net472`, `net471`, `net47`, `net462`, `netstandard2.0`. Every TFM is
-  exercised in CI.
+  `net472`, `net471`, `net47`, `net462`. Every TFM is exercised in CI.
 
 #### `AdaskoTheBeAsT.Interop.Execution.DependencyInjection`
 

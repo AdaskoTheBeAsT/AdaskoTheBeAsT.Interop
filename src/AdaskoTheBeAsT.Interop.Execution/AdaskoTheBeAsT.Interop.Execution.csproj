@@ -8,7 +8,7 @@
 
   <PropertyGroup>
     <!-- Per-package metadata; shared packaging props come from src/Directory.Build.props. -->
-    <Description>Dedicated-thread worker and worker pool that serialize async work onto per-session background threads. Supports STA on Windows, cancellation, session recycling, pluggable scheduling (IWorkerScheduler), and diagnostics via ActivitySource / Meter. Targets net10.0, net9.0, net8.0, net481/net48/net472/net471/net47/net462, and netstandard2.0.</Description>
+    <Description>Dedicated-thread worker and worker pool that serialize async work onto per-session background threads. Supports STA on Windows, cancellation, session recycling, pluggable scheduling (IWorkerScheduler), and diagnostics via ActivitySource / Meter. Targets net10.0, net9.0, net8.0, and net481/net48/net472/net471/net47/net462.</Description>
     <PackageTags>Interop;STA;Worker;WorkerPool;Threading;Session;COM;DedicatedThread;AsyncOverSync</PackageTags>
   </PropertyGroup>
 
@@ -16,7 +16,7 @@
     <InternalsVisibleTo Include="$(MSBuildProjectName).Test" />
   </ItemGroup>
 
-  <ItemGroup Condition="'$(TargetFramework)' == 'net481' OR '$(TargetFramework)' == 'net48' OR '$(TargetFramework)' == 'net472' OR '$(TargetFramework)' == 'net471' OR '$(TargetFramework)' == 'net47' OR '$(TargetFramework)' == 'net462'  OR '$(TargetFramework)' == 'netstandard2.0'">
+  <ItemGroup Condition="'$(TargetFramework)' == 'net481' OR '$(TargetFramework)' == 'net48' OR '$(TargetFramework)' == 'net472' OR '$(TargetFramework)' == 'net471' OR '$(TargetFramework)' == 'net47' OR '$(TargetFramework)' == 'net462'">
     <PackageReference Include="System.Threading.Channels" Version="[10.0.6,11.0.0)" />
     <PackageReference Include="System.Diagnostics.DiagnosticSource" Version="[10.0.6,11.0.0)" />
   </ItemGroup>

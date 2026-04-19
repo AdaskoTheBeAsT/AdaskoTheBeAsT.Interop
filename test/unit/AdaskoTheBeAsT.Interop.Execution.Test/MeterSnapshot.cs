@@ -1,12 +1,27 @@
-using System.Collections.Concurrent;
 using System.Diagnostics.Metrics;
 
 namespace AdaskoTheBeAsT.Interop.Execution.Test;
 
 internal sealed class MeterSnapshot : IDisposable
 {
+    /*
+     * Intentionally NOT a ConcurrentBag<T>:
+     * ConcurrentBag is thread-local-stack-backed, so its enumeration order is NOT insertion order —
+     * it is whatever order the thread-local slots happen to be walked in. That makes `Last()`
+     * non-deterministic under parallel producers and hides flaky telemetry assertions.
+     * We instead append under a lock to a plain List<T>; the list is iterated in strict
+     * insertion order, which is exactly the "last observed measurement" contract callers expect.
+     * The listener callbacks are not on the hot path of the library under test (tests typically
+     * produce tens of measurements, not millions), so a coarse lock is cheaper than maintaining a
+     * per-(instrument,tag-key) dictionary.
+     */
+#if NET9_0_OR_GREATER
+    private readonly Lock _syncRoot = new();
+#else
+    private readonly object _syncRoot = new();
+#endif
+    private readonly List<RecordedMeasurement> _measurements = new();
     private readonly MeterListener _listener;
-    private readonly ConcurrentBag<RecordedMeasurement> _measurements = new();
 
     public MeterSnapshot(string meterName)
     {
@@ -34,19 +49,22 @@ internal sealed class MeterSnapshot : IDisposable
     public long Sum(string instrumentName, params (string Key, string Value)[] requiredTags)
     {
         long total = 0;
-        foreach (var measurement in _measurements)
+        lock (_syncRoot)
         {
-            if (!string.Equals(measurement.InstrumentName, instrumentName, StringComparison.Ordinal))
+            foreach (var measurement in _measurements)
             {
-                continue;
-            }
+                if (!string.Equals(measurement.InstrumentName, instrumentName, StringComparison.Ordinal))
+                {
+                    continue;
+                }
 
-            if (!MatchesTags(measurement, requiredTags))
-            {
-                continue;
-            }
+                if (!MatchesTags(measurement, requiredTags))
+                {
+                    continue;
+                }
 
-            total += measurement.Value;
+                total += measurement.Value;
+            }
         }
 
         return total;
@@ -55,19 +73,24 @@ internal sealed class MeterSnapshot : IDisposable
     public long Last(string instrumentName, params (string Key, string Value)[] requiredTags)
     {
         long? lastValue = null;
-        foreach (var measurement in _measurements)
+        lock (_syncRoot)
         {
-            if (!string.Equals(measurement.InstrumentName, instrumentName, StringComparison.Ordinal))
+            for (var i = _measurements.Count - 1; i >= 0; i--)
             {
-                continue;
-            }
+                var measurement = _measurements[i];
+                if (!string.Equals(measurement.InstrumentName, instrumentName, StringComparison.Ordinal))
+                {
+                    continue;
+                }
 
-            if (!MatchesTags(measurement, requiredTags))
-            {
-                continue;
-            }
+                if (!MatchesTags(measurement, requiredTags))
+                {
+                    continue;
+                }
 
-            lastValue = measurement.Value;
+                lastValue = measurement.Value;
+                break;
+            }
         }
 
         return lastValue ?? 0;
@@ -108,7 +131,11 @@ internal sealed class MeterSnapshot : IDisposable
         ReadOnlySpan<KeyValuePair<string, object?>> tags,
         object? state)
     {
-        _measurements.Add(new RecordedMeasurement(instrument.Name, measurement, tags.ToArray()));
+        var recorded = new RecordedMeasurement(instrument.Name, measurement, tags.ToArray());
+        lock (_syncRoot)
+        {
+            _measurements.Add(recorded);
+        }
     }
 
     private void OnIntMeasurement(
@@ -117,7 +144,11 @@ internal sealed class MeterSnapshot : IDisposable
         ReadOnlySpan<KeyValuePair<string, object?>> tags,
         object? state)
     {
-        _measurements.Add(new RecordedMeasurement(instrument.Name, measurement, tags.ToArray()));
+        var recorded = new RecordedMeasurement(instrument.Name, measurement, tags.ToArray());
+        lock (_syncRoot)
+        {
+            _measurements.Add(recorded);
+        }
     }
 
     private sealed class RecordedMeasurement

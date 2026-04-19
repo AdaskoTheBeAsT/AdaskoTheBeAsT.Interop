@@ -275,7 +275,7 @@ public sealed class ExecutionWorkerPoolTest
     }
 
     [Fact]
-    public async Task ExecuteAsync_ShouldThrowObjectDisposedExceptionAfterDisposeAsyncAsync()
+    public async Task ExecuteAsync_ShouldThrowObjectDisposedExceptionAfterDisposeAsync()
     {
         // IDISP016/IDISP017 disabled: this test is specifically verifying the
         // post-DisposeAsync behavioural contract of ExecuteAsync, so the pool

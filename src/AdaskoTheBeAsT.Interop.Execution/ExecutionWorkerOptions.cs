@@ -60,8 +60,15 @@ public sealed class ExecutionWorkerOptions
         Validate();
     }
 
-    /// <summary>Gets a shared instance representing the default execution worker options.</summary>
-    public static ExecutionWorkerOptions Default { get; } = new();
+    /// <summary>
+    /// Gets a fresh <see cref="ExecutionWorkerOptions"/> instance populated with the default
+    /// values for every setting. A new instance is returned on every access so that callers
+    /// who mutate the result cannot poison subsequent fallback resolutions — historically
+    /// this was a shared <c>static readonly</c> singleton, which meant any accidental
+    /// mutation (e.g. <c>ExecutionWorkerOptions.Default.DisposeTimeout = TimeSpan.Zero</c>)
+    /// leaked into every worker that fell through to the default.
+    /// </summary>
+    public static ExecutionWorkerOptions Default => new();
 
     /// <summary>Gets or sets the optional worker display name surfaced to telemetry and event payloads.</summary>
     public string? Name { get; set; }

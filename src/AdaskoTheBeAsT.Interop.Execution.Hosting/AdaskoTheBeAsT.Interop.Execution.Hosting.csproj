@@ -8,7 +8,7 @@
 
   <PropertyGroup>
     <!-- Per-package metadata; shared packaging props come from src/Directory.Build.props. -->
-    <Description>Microsoft.Extensions.Hosting integration for AdaskoTheBeAsT.Interop.Execution: IHostedService wrappers that drive ExecutionWorker / ExecutionWorkerPool startup and graceful drain through the generic host lifecycle. Targets net10.0, net9.0, net8.0, net481/net48/net472/net471/net47/net462, and netstandard2.0.</Description>
+    <Description>Microsoft.Extensions.Hosting integration for AdaskoTheBeAsT.Interop.Execution: IHostedService wrappers that drive ExecutionWorker / ExecutionWorkerPool startup and graceful drain through the generic host lifecycle. Targets net10.0, net9.0, net8.0, and net481/net48/net472/net471/net47/net462.</Description>
     <PackageTags>Interop;STA;Worker;WorkerPool;Threading;Session;Hosting;IHostedService;Microsoft.Extensions.Hosting</PackageTags>
   </PropertyGroup>
 
@@ -32,7 +32,7 @@
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="[8.0.2,9.0.0)" />
   </ItemGroup>
 
-  <ItemGroup Condition="'$(TargetFramework)' == 'net481' OR '$(TargetFramework)' == 'net48' OR '$(TargetFramework)' == 'net472' OR '$(TargetFramework)' == 'net471' OR '$(TargetFramework)' == 'net47' OR '$(TargetFramework)' == 'net462'  OR '$(TargetFramework)' == 'netstandard2.0'">
+  <ItemGroup Condition="'$(TargetFramework)' == 'net481' OR '$(TargetFramework)' == 'net48' OR '$(TargetFramework)' == 'net472' OR '$(TargetFramework)' == 'net471' OR '$(TargetFramework)' == 'net47' OR '$(TargetFramework)' == 'net462'">
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="[10.0.6,11.0.0)" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="[10.0.6,11.0.0)" />
   </ItemGroup>

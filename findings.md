@@ -45,7 +45,7 @@
       `strict_build` / `deterministic_build` inputs; this repo consumes the workflow, no
       per-repo CI yaml required.)
    •  ✅ Remove the #pragma warning disable CS0120 pattern entirely. (Phase 1. `OperatingSystem.IsWindows()`
-      on net5+ plus `Environment.OSVersion.Platform` fallback on netstandard2.0 / netfx.)
+      on net5+ plus `Environment.OSVersion.Platform` fallback on netfx.)
    •  ✅ Replace TryIgnore with a non-generic static class ExecutionHelpers { internal static void
       TryIgnore(Action) {...} } so RCS1158 is satisfied naturally (no pragma). (Phase 1.)
    •  ✅ Add a pre-commit hook (lefthook / husky.net) that runs dotnet build --no-incremental
@@ -126,7 +126,9 @@
    •  ⏩ Add net47/net462 specific smoke tests running on a real Windows runner in CI. (CI-config;
       unit + hosting + DI + integ tests DO run under net462/net47/net471/net472/net48/net481 locally.)
    •  ✅ Verify System.Threading.Channels version selection per TFM matches the runtime. (Phase 2
-      point 7. Package pin dropped on net8+; remains on netstandard2.0 + netfx.)
+      point 7. Package pin dropped on net8+; remains on netfx only.
+      `netstandard2.0` was dropped from the TFM matrix during the Copilot review
+      follow-up, so the conditional `ItemGroup` is now netfx-only.)
 
    7. Docs → 10
    •  ✅ XML docs on public API (remove 1591 from NoWarn). (Phase 3 point 5.)
@@ -139,8 +141,9 @@
       .gitignore.
    •  ❌ Add .github/dependabot.yml (daily for NuGet + GitHub Actions).
    •  ❌ Enable CodeQL and secret scanning.
-   •  ❌ Add CONTRIBUTING.md, SECURITY.md, CODE_OF_CONDUCT.md, and .github/ISSUE_TEMPLATE/ +
-      PULL_REQUEST_TEMPLATE.md.
+   •  🟡 Add CONTRIBUTING.md, SECURITY.md, CODE_OF_CONDUCT.md, and .github/ISSUE_TEMPLATE/ +
+      PULL_REQUEST_TEMPLATE.md. (`.github/CODEOWNERS` added so branch-protection "Require
+      review from Code Owners" has a target; the other templates remain open.)
    •  ✅ Add a CHANGELOG.md (Keep a Changelog format). (Added with Unreleased section covering
       zero-alloc ExecuteValueAsync, snapshot surface, scoped diagnostics, fault-publication ordering
       fix. Release-workflow tagging is still open.)

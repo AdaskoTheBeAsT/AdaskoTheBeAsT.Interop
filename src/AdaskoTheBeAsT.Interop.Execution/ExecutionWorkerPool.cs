@@ -18,7 +18,24 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
     private readonly IWorkerScheduler<TSession> _scheduler;
     private readonly ExecutionWorkerPoolOptions _options;
     private readonly TimeSpan _disposeTimeout;
+
+    // _disposeLock guards the single-shot initialisation of _disposeTask. The shared-task
+    // design closes a gap flagged by PR review: the sync Dispose() path must bound the wait
+    // with DisposeTimeout, while the async DisposeAsync() path must await full drain — but
+    // both paths must observe exactly the same in-flight operation so that a caller who
+    // first times out Dispose() and then later awaits DisposeAsync() actually observes the
+    // drain instead of an instant no-op. _disposeState is retained purely as the "disposal
+    // has been requested" flag so new submissions are rejected regardless of which path
+    // started the drain (and so MarkDisposedForTesting keeps working).
+    // System.Threading.Lock on net9+ / object on older TFMs mirrors the established pattern
+    // used by ExecutionWorker._syncRoot.
+#if NET9_0_OR_GREATER
+    private readonly Lock _disposeLock = new();
+#else
+    private readonly object _disposeLock = new();
+#endif
     private int _disposeState;
+    private Task? _disposeTask;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ExecutionWorkerPool{TSession}"/>
@@ -294,48 +311,37 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
 #endif
 
     /// <summary>
-    /// Asynchronously disposes every worker in parallel. Idempotent.
+    /// Asynchronously disposes every worker in parallel. Idempotent; every call awaits the
+    /// same in-flight drain created on the first invocation (via <see cref="Dispose"/> or
+    /// <see cref="DisposeAsync"/>), so callers are guaranteed to observe drain completion —
+    /// including the case where a prior synchronous <see cref="Dispose"/> returned early on
+    /// <see cref="ExecutionWorkerPoolOptions.DisposeTimeout"/>.
     /// </summary>
     /// <returns>A <see cref="ValueTask"/> that completes once every worker thread exits.</returns>
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposeState, 1) != 0)
-        {
-            return;
-        }
-
-        // Dispose workers in parallel: each worker's DisposeAsync completes independently
-        // once its dedicated thread finishes draining. Awaiting WhenAll keeps overall
-        // pool shutdown time O(max(worker drain)) instead of O(sum(worker drain)).
-        var disposeTasks = new Task[_workers.Length];
-        for (var workerIndex = 0; workerIndex < _workers.Length; workerIndex++)
-        {
-            var worker = _workers[workerIndex];
-            worker.WorkerFaulted -= OnWorkerFaulted;
-            disposeTasks[workerIndex] = worker.DisposeAsync().AsTask();
-        }
-
-        await Task.WhenAll(disposeTasks).ConfigureAwait(false);
+        return new ValueTask(EnsureDisposeStartedAsync());
     }
 
     /// <summary>
     /// Synchronous disposal bounded by
     /// <see cref="ExecutionWorkerPoolOptions.DisposeTimeout"/>. Prefer
-    /// <see cref="DisposeAsync"/> whenever practical.
+    /// <see cref="DisposeAsync"/> whenever practical. A timeout abandons the wait but does
+    /// NOT cancel the underlying drain; a later <see cref="DisposeAsync"/> call will await
+    /// the same Task and observe full completion.
     /// </summary>
     public void Dispose()
     {
-        var disposeTask = DisposeAsync().AsTask();
+        var disposeTask = EnsureDisposeStartedAsync();
         var timeout = _disposeTimeout;
 
-        // Safe sync-over-async (VSTHRD002 disabled): DisposeAsync awaits each worker's
-        // DisposeAsync, which in turn awaits a RunContinuationsAsynchronously TCS
-        // signaled from its dedicated worker Thread. No caller SynchronizationContext
-        // is captured, so GetAwaiter().GetResult() cannot deadlock. Task.Wait(timeout)
-        // bounds the wait by ExecutionWorkerPoolOptions.DisposeTimeout (default
-        // Timeout.InfiniteTimeSpan); on completion GetAwaiter().GetResult() rethrows
-        // any DisposeAsync fault unwrapped instead of wrapped in AggregateException
-        // (the exception-propagation advantage of option A over per-worker Thread.Join).
+        // Safe sync-over-async (VSTHRD002 disabled): the shared _disposeTask awaits each
+        // worker's DisposeAsync, which in turn awaits a RunContinuationsAsynchronously TCS
+        // signaled from its dedicated worker Thread. No caller SynchronizationContext is
+        // captured, so GetAwaiter().GetResult() cannot deadlock. Task.Wait(timeout) bounds
+        // the wait by ExecutionWorkerPoolOptions.DisposeTimeout (default
+        // Timeout.InfiniteTimeSpan); on completion GetAwaiter().GetResult() rethrows any
+        // DisposeAsync fault unwrapped instead of wrapped in AggregateException.
 #pragma warning disable VSTHRD002
         bool completed;
         try
@@ -352,8 +358,9 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
 
         if (!completed)
         {
-            // Timeout guard: abandon the wait rather than block the caller
-            // indefinitely if one or more workers fail to drain within DisposeTimeout.
+            // Timeout guard: abandon the wait rather than block the caller indefinitely
+            // if one or more workers fail to drain within DisposeTimeout. The background
+            // drain continues; a later await on DisposeAsync() observes the same Task.
             return;
         }
 
@@ -426,6 +433,49 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
             SchedulingStrategy.RoundRobin => new RoundRobinWorkerScheduler<TSession>(),
             _ => new LeastQueuedWorkerScheduler<TSession>(),
         };
+    }
+
+    private Task EnsureDisposeStartedAsync()
+    {
+        var existing = Volatile.Read(ref _disposeTask);
+        if (existing is not null)
+        {
+            return existing;
+        }
+
+        lock (_disposeLock)
+        {
+            existing = _disposeTask;
+            if (existing is null)
+            {
+                // Flag "disposal requested" BEFORE kicking off the drain so ThrowIfDisposed
+                // / submission-path checks immediately start rejecting new work, even before
+                // the first await inside DisposeCoreAsync runs.
+                Volatile.Write(ref _disposeState, 1);
+                existing = DisposeCoreAsync();
+                Volatile.Write(ref _disposeTask, existing);
+            }
+        }
+
+        return existing;
+    }
+
+    private Task DisposeCoreAsync()
+    {
+        // Dispose workers in parallel: each worker's DisposeAsync completes independently
+        // once its dedicated thread finishes draining. Returning Task.WhenAll directly
+        // keeps overall pool shutdown time O(max(worker drain)) instead of
+        // O(sum(worker drain)) and avoids an extra async state-machine allocation
+        // (AsyncFixer01 — only a single expression is awaited).
+        var disposeTasks = new Task[_workers.Length];
+        for (var workerIndex = 0; workerIndex < _workers.Length; workerIndex++)
+        {
+            var worker = _workers[workerIndex];
+            worker.WorkerFaulted -= OnWorkerFaulted;
+            disposeTasks[workerIndex] = worker.DisposeAsync().AsTask();
+        }
+
+        return Task.WhenAll(disposeTasks);
     }
 
     private Task[] StartAllWorkers(CancellationToken cancellationToken)

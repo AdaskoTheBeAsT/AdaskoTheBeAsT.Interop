@@ -38,8 +38,7 @@ Symbols ship as `.snupkg` with Source Link and embedded untracked sources, so yo
 | TFM | Notes |
 | --- | --- |
 | `net10.0`, `net9.0`, `net8.0` | Primary targets; in-box `System.Threading.Channels` + `System.Diagnostics.DiagnosticSource`. |
-| `net481`, `net48`, `net472`, `net471`, `net47`, `net462` | Windows desktop; adds `System.Threading.Channels` + `System.Diagnostics.DiagnosticSource` via NuGet. |
-| `netstandard2.0` | Retained for reach (older Xamarin / Unity consumers); same polyfills as netfx. |
+| `net481`, `net48`, `net472`, `net471`, `net47`, `net462` | Windows desktop; adds `System.Threading.Channels` + `System.Diagnostics.DiagnosticSource` via NuGet, plus the `IsExternalInit` polyfill. |
 
 Every TFM is built with `TreatWarningsAsErrors=true`, `ContinuousIntegrationBuild=true`, `Deterministic=true`, and every cell of the matrix is exercised in CI.
 
@@ -334,7 +333,7 @@ Test suites:
 | `test/unit/AdaskoTheBeAsT.Interop.Execution.Hosting.Test` | `IHostedService` start/stop lifecycle, idempotent shutdown. |
 | `test/integ/AdaskoTheBeAsT.Interop.Execution.IntegrationTest` | Multi-threaded submission, STA on Windows, reentrant dispose, session recycling, `ValueTask` overloads, diagnostic-names contract. |
 
-All four projects run across the full 9-TFM matrix.
+All four projects run across the full 9-target matrix (`net10.0`, `net9.0`, `net8.0`, `net481`, `net48`, `net472`, `net471`, `net47`, `net462`).
 
 ## Architecture Decision Records
 

@@ -160,8 +160,16 @@ public sealed class ExecutionWorkerPoolTest
                             worker2Started.Set();
                             break;
                         case 1:
+                            // MA0040 suppressed: the wait runs on the worker thread inside
+                            // the session-factory delegate (the production callback signature
+                            // does not carry a CancellationToken) and the assertion is that the
+                            // 5-second timeout elapses synchronously when workers 0/2 fail to
+                            // become ready. Propagating a token would either be impossible (no
+                            // token in scope) or defeat the deadlock-detection purpose.
+#pragma warning disable MA0040
                             worker0Started.Wait(TimeSpan.FromSeconds(5));
                             worker2Started.Wait(TimeSpan.FromSeconds(5));
+#pragma warning restore MA0040
                             break;
                         default:
                             break;
@@ -801,7 +809,13 @@ public sealed class ExecutionWorkerPoolTest
     {
         var tracker = new PoolSessionTracker();
 
+        // RCS1261/MA0042 suppressed: the fact is intentionally synchronous; converting
+        // to async Task would prevent asserting on IsAnyFaulted before awaiting anything
+        // and would cost an unnecessary scheduler hop. Sync Dispose is safe for a healthy
+        // pool: the dedicated worker threads observe cancellation and exit promptly.
+#pragma warning disable RCS1261, MA0042
         using var workerPool = CreateWorkerPool(2, tracker);
+#pragma warning restore RCS1261, MA0042
 
         workerPool.IsAnyFaulted.Should().BeFalse();
     }
@@ -811,7 +825,11 @@ public sealed class ExecutionWorkerPoolTest
     {
         var tracker = new PoolSessionTracker();
 
+        // RCS1261/MA0042 suppressed: sync-by-design - the fact asserts a synchronous
+        // ArgumentNullException on an invalid call and must not turn async.
+#pragma warning disable RCS1261, MA0042
         using var workerPool = CreateWorkerPool(1, tracker);
+#pragma warning restore RCS1261, MA0042
 
         Action call = () => workerPool.SetWorkerThreadForTesting(0, workerThread: null!);
 

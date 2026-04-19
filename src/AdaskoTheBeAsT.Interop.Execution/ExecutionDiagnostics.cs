@@ -133,10 +133,14 @@ public sealed class ExecutionDiagnostics : IDisposable
 
     internal void RegisterWorker(ExecutionWorkerRegistration registration)
     {
+#if NET8_0_OR_GREATER
+        ArgumentNullException.ThrowIfNull(registration);
+#else
         if (registration is null)
         {
             throw new ArgumentNullException(nameof(registration));
         }
+#endif
 
         _workers.TryAdd(registration, 0);
     }

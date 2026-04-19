@@ -28,10 +28,14 @@ public static class ExecutionWorkerHostingExtensions
         Action<ExecutionWorkerOptions>? configure = null)
         where TSession : class
     {
+#if NET8_0_OR_GREATER
+        ArgumentNullException.ThrowIfNull(services);
+#else
         if (services is null)
         {
             throw new ArgumentNullException(nameof(services));
         }
+#endif
 
         services.AddExecutionWorker<TSession>(configure);
         services.TryAddEnumerable(
@@ -54,10 +58,14 @@ public static class ExecutionWorkerHostingExtensions
         Action<ExecutionWorkerPoolOptions>? configure = null)
         where TSession : class
     {
+#if NET8_0_OR_GREATER
+        ArgumentNullException.ThrowIfNull(services);
+#else
         if (services is null)
         {
             throw new ArgumentNullException(nameof(services));
         }
+#endif
 
         services.AddExecutionWorkerPool<TSession>(configure);
         services.TryAddEnumerable(

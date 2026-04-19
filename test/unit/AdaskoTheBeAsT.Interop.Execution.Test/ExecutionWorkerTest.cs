@@ -816,6 +816,11 @@ public sealed class ExecutionWorkerTest
         using var diagnostics = new ExecutionDiagnostics(
             $"{ExecutionDiagnosticNames.SourceName}.Test.{Guid.NewGuid():N}");
         var recorded = new ConcurrentBag<Activity>();
+
+        // IDE0350 suppressed: ActivityListener.Sample is a SampleActivity delegate that
+        // takes 'ref ActivityCreationOptions<ActivityContext>'; the analyzer's suggestion
+        // to drop the explicit parameter type breaks overload resolution for ref-lambdas.
+#pragma warning disable IDE0350
         using var listener = new ActivityListener
         {
             ShouldListenTo = source => string.Equals(source.Name, diagnostics.SourceName, StringComparison.Ordinal),
@@ -828,6 +833,7 @@ public sealed class ExecutionWorkerTest
                 }
             },
         };
+#pragma warning restore IDE0350
         ActivitySource.AddActivityListener(listener);
 
         var sessionFactory = new TrackingSessionFactory();
@@ -883,7 +889,13 @@ public sealed class ExecutionWorkerTest
         // synchronously on a null delegate, so the discarded ValueTask is
         // never produced.
 #pragma warning disable CA2012
-        Action call = () => _ = worker.ExecuteValueAsync((Action<TestSession, CancellationToken>)null!);
+        Action call = () => _ = worker.ExecuteValueAsync(
+            (Action<TestSession, CancellationToken>)null!,
+#if NET8_0_OR_GREATER
+            cancellationToken: TestContext.Current.CancellationToken);
+#else
+            cancellationToken: CancellationToken.None);
+#endif
 #pragma warning restore CA2012
 
         call.Should().Throw<ArgumentNullException>().WithParameterName("action");
@@ -897,7 +909,13 @@ public sealed class ExecutionWorkerTest
 
         // CA2012 disabled: see preceding test.
 #pragma warning disable CA2012
-        Action call = () => _ = worker.ExecuteValueAsync<int>((Func<TestSession, CancellationToken, int>)null!);
+        Action call = () => _ = worker.ExecuteValueAsync<int>(
+            (Func<TestSession, CancellationToken, int>)null!,
+#if NET8_0_OR_GREATER
+            cancellationToken: TestContext.Current.CancellationToken);
+#else
+            cancellationToken: CancellationToken.None);
+#endif
 #pragma warning restore CA2012
 
         call.Should().Throw<ArgumentNullException>().WithParameterName("action");
@@ -985,7 +1003,13 @@ public sealed class ExecutionWorkerTest
         var worker = new ExecutionWorker<TestSession>(sessionFactory);
         worker.Dispose();
 
-        Action call = () => _ = worker.ExecuteValueAsync(static (_, _) => { });
+        Action call = () => _ = worker.ExecuteValueAsync(
+            static (_, _) => { },
+#if NET8_0_OR_GREATER
+            cancellationToken: TestContext.Current.CancellationToken);
+#else
+            cancellationToken: CancellationToken.None);
+#endif
 #pragma warning restore IDISP016, IDISP017, CA2012
 
         call.Should().Throw<ObjectDisposedException>();
@@ -1004,9 +1028,14 @@ public sealed class ExecutionWorkerTest
 #pragma warning restore RCS1261, MA0042
 
         using var cts = new CancellationTokenSource();
-#pragma warning disable VSTHRD103, S6966
+
+        // MA0042 suppressed: the test itself is sync-by-design (see block above).
+        // Calling CancelAsync would require making the method async and forfeit
+        // the ability to assert on the synchronously-cancelled Task returned by
+        // InitializeAsync.
+#pragma warning disable VSTHRD103, S6966, MA0042
         cts.Cancel();
-#pragma warning restore VSTHRD103, S6966
+#pragma warning restore VSTHRD103, S6966, MA0042
 
         // AsyncFixer04 disabled: we deliberately do not await the returned
         // Task because the assertion is that a pre-cancelled token produces
@@ -1045,7 +1074,9 @@ public sealed class ExecutionWorkerTest
         // scope, listener, and worker are manually disposed in finally blocks
         // to enforce teardown order (worker first so the activity loop drains,
         // then listener, then diagnostics).
-#pragma warning disable IDISP001, IDISP003, IDISP004, IDISP013, IDISP017
+        // IDE0350 suppressed: ref-lambda parameter type cannot be simplified (see
+        // the matching suppression earlier in this file for detail).
+#pragma warning disable IDISP001, IDISP003, IDISP004, IDISP013, IDISP017, IDE0350
         var diagnostics = new ExecutionDiagnostics(sourceName);
         var listener = new ActivityListener
         {
@@ -1062,13 +1093,21 @@ public sealed class ExecutionWorkerTest
                 new ExecutionWorkerOptions(diagnostics: diagnostics));
             try
             {
+#if NET8_0_OR_GREATER
+                var testCt = TestContext.Current.CancellationToken;
+#else
+                var testCt = CancellationToken.None;
 #pragma warning disable xUnit1051
-                await worker.ExecuteAsync(static (_, _) => { });
+#endif
+                await worker.ExecuteAsync(static (_, _) => { }, cancellationToken: testCt);
 
                 Func<Task> failing = () => worker.ExecuteAsync(
-                    static (_, _) => throw new InvalidOperationException("boom"));
+                    static (_, _) => throw new InvalidOperationException("boom"),
+                    cancellationToken: testCt);
                 await failing.Should().ThrowAsync<InvalidOperationException>();
+#if !NET8_0_OR_GREATER
 #pragma warning restore xUnit1051
+#endif
 
                 await WaitUntilAsync(() => recordedStatuses.Count >= 2);
             }
@@ -1082,7 +1121,7 @@ public sealed class ExecutionWorkerTest
             listener.Dispose();
             diagnostics.Dispose();
         }
-#pragma warning restore IDISP001, IDISP003, IDISP004, IDISP013, IDISP017
+#pragma warning restore IDISP001, IDISP003, IDISP004, IDISP013, IDISP017, IDE0350
 
         recordedStatuses.Should().Contain(ActivityStatusCode.Ok);
         recordedStatuses.Should().Contain(ActivityStatusCode.Error);

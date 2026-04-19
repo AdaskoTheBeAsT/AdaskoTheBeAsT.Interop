@@ -14,10 +14,14 @@ public sealed class RoundRobinWorkerScheduler<TSession> : IWorkerScheduler<TSess
     /// <inheritdoc />
     public IExecutionWorker<TSession> SelectWorker(IReadOnlyList<IExecutionWorker<TSession>> workers)
     {
+#if NET8_0_OR_GREATER
+        ArgumentNullException.ThrowIfNull(workers);
+#else
         if (workers is null)
         {
             throw new ArgumentNullException(nameof(workers));
         }
+#endif
 
         if (workers.Count == 0)
         {

@@ -28,10 +28,14 @@ public static class ExecutionWorkerServiceCollectionExtensions
         Action<ExecutionWorkerOptions>? configure = null)
         where TSession : class
     {
+#if NET8_0_OR_GREATER
+        ArgumentNullException.ThrowIfNull(services);
+#else
         if (services is null)
         {
             throw new ArgumentNullException(nameof(services));
         }
+#endif
 
         // Use named options keyed by the closed TSession type so that multiple
         // AddExecutionWorker<T>(...) calls with different TSession types do not
@@ -72,10 +76,14 @@ public static class ExecutionWorkerServiceCollectionExtensions
         Action<ExecutionWorkerPoolOptions>? configure = null)
         where TSession : class
     {
+#if NET8_0_OR_GREATER
+        ArgumentNullException.ThrowIfNull(services);
+#else
         if (services is null)
         {
             throw new ArgumentNullException(nameof(services));
         }
+#endif
 
         // Use named options keyed by the closed TSession type so that multiple
         // AddExecutionWorkerPool<T>(...) calls with different TSession types do not

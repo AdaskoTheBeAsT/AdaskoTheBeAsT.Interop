@@ -121,10 +121,14 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
         ExecutionWorkerPoolOptions options,
         IWorkerScheduler<TSession>? scheduler)
     {
+#if NET8_0_OR_GREATER
+        ArgumentNullException.ThrowIfNull(sessionFactoryFactory);
+#else
         if (sessionFactoryFactory is null)
         {
             throw new ArgumentNullException(nameof(sessionFactoryFactory));
         }
+#endif
 
         _ = options ?? throw new ArgumentNullException(nameof(options));
         options.Validate();
@@ -380,10 +384,14 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
     private static Func<int, IExecutionSessionFactory<TSession>> CreateSharedFactoryProvider(
         IExecutionSessionFactory<TSession> sessionFactory)
     {
+#if NET8_0_OR_GREATER
+        ArgumentNullException.ThrowIfNull(sessionFactory);
+#else
         if (sessionFactory is null)
         {
             throw new ArgumentNullException(nameof(sessionFactory));
         }
+#endif
 
         var sharedFactory = sessionFactory;
         return _ => sharedFactory;
@@ -520,10 +528,14 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
 
     private void ThrowIfDisposed()
     {
+#if NET7_0_OR_GREATER
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposeState) != 0, TypeName);
+#else
         if (Volatile.Read(ref _disposeState) != 0)
         {
             throw new ObjectDisposedException(TypeName);
         }
+#endif
     }
 
     private void CleanupFailedInitialization()

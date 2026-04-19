@@ -54,6 +54,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Quality
 
+- **SonarCloud PR sweep (round 2) — 29 additional INFO-severity findings
+  addressed.** Modern-BCL suggestions that target `net6.0+` / `net7.0+` /
+  `net8.0+` are adopted on the matching TFMs via `#if` preprocessor
+  guards while legacy `net462`..`net481` keeps the explicit-throw fallback,
+  so nothing is regressed on older frameworks:
+  - **`CA1510` (13 findings).** `ArgumentNullException.ThrowIfNull` on
+    `net8.0+`, explicit `throw new ArgumentNullException(nameof(x))` on
+    `net462`..`net7.0` in `ExecutionWorker`, `ExecutionWorkerPool`,
+    `ExecutionDiagnostics`, `RoundRobinWorkerScheduler`,
+    `LeastQueuedWorkerScheduler`, `ExecutionWorkerServiceCollectionExtensions`,
+    `ExecutionWorkerHostingExtensions`.
+  - **`CA1513` (2 findings).** `ObjectDisposedException.ThrowIf` on
+    `net7.0+`, explicit `throw new ObjectDisposedException(TypeName)`
+    otherwise — `ExecutionWorker.ThrowIfDisposed`,
+    `ExecutionWorkerPool.ThrowIfDisposed`.
+  - **`CA2263` (1 finding).** `Enum.IsDefined<TEnum>(TEnum)` generic
+    overload on `net5.0+`, non-generic `Enum.IsDefined(Type, object)`
+    otherwise — `ExecutionWorkerPoolOptions` validation.
+  - **`MA0042` / `MA0040` (src — 2 findings).** Extended existing
+    `VSTHRD002` / `VSTHRD103` scoped pragmas in `ExecutionWorker` to
+    cover the related Meziantou cancellation rules, with the reasoning
+    comments expanded to document why the sync `Cancel()` and the
+    no-token `disposeTask.Wait(timeout)` are the correct primitives
+    inside the non-async `DisposeAsync` / sync-disposal paths.
+  - **Test-side `MA0040` (7 findings).** Passed
+    `TestContext.Current.CancellationToken` (xUnit v3, `net8.0+`) or
+    `CancellationToken.None` (xUnit v2, legacy TFMs) through a
+    preprocessor-guarded local to the relevant `ExecuteAsync` /
+    `ExecuteValueAsync` calls in `ExecutionWorkerTest`. The two
+    `ManualResetEventSlim.Wait(TimeSpan)` sites inside a session-factory
+    delegate in `ExecutionWorkerPoolTest` stay under a scoped
+    `MA0040` pragma because the callback signature has no token.
+  - **Test-side `MA0042` / `RCS1261` (3 findings).** The two intentionally
+    synchronous `Fact` methods in `ExecutionWorkerPoolTest`
+    (`IsAnyFaulted_ShouldBeFalseForHealthyPool`,
+    `SetWorkerThreadForTesting_ShouldThrowWhenWorkerThreadIsNull`) and
+    the single sync assertion block in `ExecutionWorkerTest`
+    (`InitializeAsync_ShouldReturnCancelledTaskForPreCancelledTokenAsync`)
+    keep `using var` + `Cancel()` under scoped pragmas because
+    `await using` / `CancelAsync` would force them to become async and
+    invalidate the sync-return assertions.
+  - **`IDE0350` (2 findings).** Two `ActivityListener.Sample` ref-lambdas
+    in `ExecutionWorkerTest` stay under a scoped pragma because the
+    analyzer's suggested simplification cannot compile against the
+    `SampleActivity` delegate signature (`ref ActivityCreationOptions<ActivityContext>`).
+
 - **SonarCloud PR sweep — 123 INFO-severity findings addressed.** All
   open code-smells reported on the pull request were either fixed or
   intentionally suppressed with explanatory comments. Highlights:

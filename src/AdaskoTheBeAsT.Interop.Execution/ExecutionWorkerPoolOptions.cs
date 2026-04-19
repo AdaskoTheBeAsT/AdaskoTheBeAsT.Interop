@@ -118,7 +118,11 @@ public sealed class ExecutionWorkerPoolOptions
             throw new ArgumentOutOfRangeException(nameof(DisposeTimeout));
         }
 
+#if NET5_0_OR_GREATER
+        if (!Enum.IsDefined(SchedulingStrategy))
+#else
         if (!Enum.IsDefined(typeof(SchedulingStrategy), SchedulingStrategy))
+#endif
         {
             throw new ArgumentOutOfRangeException(nameof(SchedulingStrategy));
         }

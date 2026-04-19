@@ -122,10 +122,14 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
         ExecutionRequestOptions? options = null,
         CancellationToken cancellationToken = default)
     {
+#if NET8_0_OR_GREATER
+        ArgumentNullException.ThrowIfNull(action);
+#else
         if (action is null)
         {
             throw new ArgumentNullException(nameof(action));
         }
+#endif
 
         var executionAction = action;
         return ExecuteAsync<object?>(
@@ -144,10 +148,14 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
         ExecutionRequestOptions? options = null,
         CancellationToken cancellationToken = default)
     {
+#if NET8_0_OR_GREATER
+        ArgumentNullException.ThrowIfNull(action);
+#else
         if (action is null)
         {
             throw new ArgumentNullException(nameof(action));
         }
+#endif
 
         if (cancellationToken.IsCancellationRequested)
         {
@@ -189,10 +197,14 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
         ExecutionRequestOptions? options = null,
         CancellationToken cancellationToken = default)
     {
+#if NET8_0_OR_GREATER
+        ArgumentNullException.ThrowIfNull(action);
+#else
         if (action is null)
         {
             throw new ArgumentNullException(nameof(action));
         }
+#endif
 
         if (cancellationToken.IsCancellationRequested)
         {
@@ -238,10 +250,14 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
         ExecutionRequestOptions? options = null,
         CancellationToken cancellationToken = default)
     {
+#if NET8_0_OR_GREATER
+        ArgumentNullException.ThrowIfNull(action);
+#else
         if (action is null)
         {
             throw new ArgumentNullException(nameof(action));
         }
+#endif
 
         if (cancellationToken.IsCancellationRequested)
         {
@@ -281,11 +297,11 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
 
         _channel.Writer.TryComplete();
 
-        // VSTHRD103 disabled: Cancel() is the correct primitive here — DisposeAsync is a
-        // non-async method returning ValueTask, and cancellation is a fire-and-forget
-        // signal to the worker thread. CancelAsync would only change where registered
-        // callbacks execute; the cancellation effect is synchronous either way.
-#pragma warning disable VSTHRD103
+        // VSTHRD103 / MA0042 disabled: Cancel() is the correct primitive here —
+        // DisposeAsync is a non-async method returning ValueTask, and cancellation is
+        // a fire-and-forget signal to the worker thread. CancelAsync would only change
+        // where registered callbacks execute; the cancellation effect is synchronous either way.
+#pragma warning disable VSTHRD103, MA0042
         try
         {
             _workerCancellationTokenSource.Cancel();
@@ -294,7 +310,7 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
         {
             GC.KeepAlive(exception);
         }
-#pragma warning restore VSTHRD103
+#pragma warning restore VSTHRD103, MA0042
 
         Thread? workerThread;
         lock (_syncRoot)
@@ -352,10 +368,14 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
         // DisposeAsync fault is rethrown unwrapped with the original exception type
         // rather than wrapped in an AggregateException. This is the exception-propagation
         // advantage of option A over a bare Thread.Join in the sync disposal path.
-#pragma warning disable VSTHRD002
+#pragma warning disable VSTHRD002, MA0040
         bool completed;
         try
         {
+            // MA0040 suppressed: passing _workerCancellationTokenSource.Token to Wait
+            // would make the wait throw OperationCanceledException as soon as dispose's
+            // own cancellation signal fires (which we triggered above on line 304),
+            // defeating the timeout-bounded sync-over-async pattern.
             completed = disposeTask.Wait(timeout);
         }
         catch (AggregateException)
@@ -374,7 +394,7 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
         }
 
         disposeTask.GetAwaiter().GetResult();
-#pragma warning restore VSTHRD002
+#pragma warning restore VSTHRD002, MA0040
     }
 
     internal bool TryCompleteChannelForTesting(Exception? exception = null)
@@ -717,10 +737,14 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
 
     private void ThrowIfDisposed()
     {
+#if NET7_0_OR_GREATER
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposeState) != 0, TypeName);
+#else
         if (Volatile.Read(ref _disposeState) != 0)
         {
             throw new ObjectDisposedException(TypeName);
         }
+#endif
     }
 
     private void DisposeSession()

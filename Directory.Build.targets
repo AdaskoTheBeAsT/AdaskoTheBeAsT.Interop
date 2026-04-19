@@ -26,6 +26,7 @@
                       '$(CI)' != 'true' AND
                       '$(TF_BUILD)' != 'true' AND
                       '$(GITHUB_ACTIONS)' != 'true' AND
+                      '$(SolutionDir)' != '' AND
                       Exists('$(MSBuildThisFileDirectory).husky\task-runner.json') AND
                       !Exists('$(MSBuildThisFileDirectory).husky\_\husky.sh') ">
     <Exec Command="dotnet tool restore"

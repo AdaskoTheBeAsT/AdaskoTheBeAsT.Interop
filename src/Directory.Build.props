@@ -35,9 +35,13 @@
     three packages never drift out of sync. Uses MSBuild's property functions
     so no custom task is required; if the file is missing the property silently
     stays empty and the build still succeeds.
+
+    Only the most recent "## ..." section is extracted (first heading up to but
+    not including the next "## " line or end of file) so the NuGet metadata does
+    not bloat as the changelog grows across releases.
   -->
   <PropertyGroup Condition="Exists('$(MSBuildThisFileDirectory)..\CHANGELOG.md')">
-    <PackageReleaseNotes>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)..\CHANGELOG.md'))</PackageReleaseNotes>
+    <PackageReleaseNotes>$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)..\CHANGELOG.md')), '(?ms)^## .*?(?=^## |\z)').Value)</PackageReleaseNotes>
   </PropertyGroup>
 
   <!-- Flip deterministic + CI flags automatically on Azure Pipelines / GitHub Actions. -->

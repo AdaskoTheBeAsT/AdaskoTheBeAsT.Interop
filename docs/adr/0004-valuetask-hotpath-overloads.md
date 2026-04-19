@@ -1,8 +1,19 @@
 # ADR-0004 — `ValueTask` hot-path extension overloads
 
-- **Status**: Accepted
+- **Status**: Superseded by [ADR-0007](0007-zero-alloc-value-task-source.md) (2026-04-19)
 - **Date**: 2026-04-18
 - **Related**: `improve.md` ("Public API surface leaks `Task` vs `ValueTask` inconsistencies … A `ValueTask`-returning overload for hot paths would help high-throughput callers")
+
+> **Superseded.** The extension-method design recorded below was shipped as an
+> interim step and then promptly replaced by the zero-allocation pooled
+> `IValueTaskSource<T>` implementation described in
+> [ADR-0007](0007-zero-alloc-value-task-source.md). `ExecuteValueAsync` is now
+> declared directly on `ExecutionWorker<TSession>` / `ExecutionWorkerPool<TSession>`
+> as **instance methods** backed by pooled work items — the
+> `ExecutionWorkerValueTaskExtensions` static class described below **no longer
+> exists** in the codebase. The rest of this ADR is kept verbatim for historical
+> context only; consult ADR-0007 for the current API shape and allocation
+> semantics.
 
 ## Context
 

@@ -782,7 +782,7 @@ public sealed class ExecutionWorkerPoolTest
     public async Task ExecuteValueAsync_ShouldThrowWhenSchedulerReturnsForeignWorkerAsync()
     {
         var tracker = new PoolSessionTracker();
-        using var foreignWorker = new ForeignExecutionWorker();
+        await using var foreignWorker = new ForeignExecutionWorker();
         var foreignScheduler = new ForeignWorkerScheduler(foreignWorker);
 
         await using var workerPool = new ExecutionWorkerPool<PoolSession>(

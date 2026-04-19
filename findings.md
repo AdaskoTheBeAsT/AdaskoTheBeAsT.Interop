@@ -82,10 +82,14 @@
         `Initialize_ShouldIgnoreWorkerDisposeFailuresDuringCleanup` + session-factory with throwing
         `DisposeSession`.
    •  ✅ Remove TryIgnore_ShouldThrowWhenActionIsNull; the guard is unreachable from production and
-      testing dead code pollutes the API. (Removed per ADR-0001 — a `Grep` of
+      testing dead code pollutes the API. (Originally removed per ADR-0001 — a `Grep` of
       `ExecutionHelpers.TryIgnore` callers confirmed every production caller passes a non-null
-      delegate, so the null-guard cannot be reached from production and pinning it with a test
-      would fossilise a non-contract. Zero references to `TryIgnore` remain in `test/`.)
+      delegate, so the null-guard cannot be reached from production. The contract was
+      subsequently pinned back: `ExecutionHelpers.TryIgnore` is part of the public surface
+      (CS1591-documented, `Obsolete`-free), so `DiagnosticsAndHelpersTest` keeps
+      `ExecutionHelpers_TryIgnore_ShouldThrowForNullAction` and
+      `ExecutionHelpers_TryIgnore_ShouldSwallowExceptionsThrownByAction` to lock the
+      two behaviours consumers can observe via the public API.)
    •  ✅ Add a test/integ/ project: real multi-threaded scenarios, long-run session recycling,
       reentrancy from inside work items, OS-conditional STA on Windows.
       (test/integ/AdaskoTheBeAsT.Interop.Execution.IntegrationTest — 36 tests per modern TFM,

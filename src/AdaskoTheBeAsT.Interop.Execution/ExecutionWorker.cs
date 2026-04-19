@@ -755,7 +755,7 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
             return;
         }
 
-        Volatile.Write(ref _session, null);
+        Volatile.Write(ref _session, value: null);
         Interlocked.Exchange(ref _operationsProcessed, 0);
         _sessionFactory.DisposeSession(session);
     }

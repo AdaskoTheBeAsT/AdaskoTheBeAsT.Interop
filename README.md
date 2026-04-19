@@ -2,28 +2,54 @@
 
 > A focused interop toolbox for dedicated-thread execution, native library isolation, and COM-friendly workloads.
 
-This repository contains the `AdaskoTheBeAsT.Interop.Execution` family and is designed to work alongside sibling packages such as `AdaskoTheBeAsT.Interop.COM`, `AdaskoTheBeAsT.Interop.Threading`, and `AdaskoTheBeAsT.Interop.Unmanaged`.
+[![NuGet](https://img.shields.io/nuget/v/AdaskoTheBeAsT.Interop.Execution.svg?label=AdaskoTheBeAsT.Interop.Execution&logo=nuget)](https://www.nuget.org/packages/AdaskoTheBeAsT.Interop.Execution/)
+[![NuGet](https://img.shields.io/nuget/v/AdaskoTheBeAsT.Interop.Execution.DependencyInjection.svg?label=Execution.DependencyInjection&logo=nuget)](https://www.nuget.org/packages/AdaskoTheBeAsT.Interop.Execution.DependencyInjection/)
+[![NuGet](https://img.shields.io/nuget/v/AdaskoTheBeAsT.Interop.Execution.Hosting.svg?label=Execution.Hosting&logo=nuget)](https://www.nuget.org/packages/AdaskoTheBeAsT.Interop.Execution.Hosting/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+![TFMs](https://img.shields.io/badge/TFMs-net10.0%20%7C%20net9.0%20%7C%20net8.0%20%7C%20net4.6.2%E2%80%93net4.8.1-512BD4?logo=dotnet)
+![Warnings](https://img.shields.io/badge/warnings--as--errors-on-green)
+![Deterministic](https://img.shields.io/badge/deterministic%20build-on-blue)
 
-## Why this exists
+---
 
-Interop code is fun right up until it isn't:
+## 👋 Hello, interop friend
 
-- native libraries want thread affinity
-- COM components want STA and message pumping
-- some engines behave better when a single background thread owns all state
-- some workloads need explicit load / unload / recycle behavior instead of "hope the process survives"
+Interop code is fun, right up until it *isn't*. You know the signs:
 
-`AdaskoTheBeAsT.Interop.Execution` gives you a reusable worker (and pool) for exactly that shape of problem.
+- 🧬 a native library that secretly wants thread affinity
+- 🏢 a COM component that quietly insists on STA + message pumping
+- 🧸 an engine that loses its mind if two threads touch it at once
+- ♻️ a workload that needs explicit load / unload / recycle, not "hope the process survives"
 
-## Packages in this repo
+`AdaskoTheBeAsT.Interop.Execution` is the reusable boilerplate you keep rewriting in every project: a dedicated worker thread (or a pool of them), a session it owns, a queue in front of it, and all the cancellation / disposal / telemetry plumbing that *should* just be a library by now. 📦
+
+And now it is. ✨
+
+---
+
+## ✨ Why you'll love this
+
+- ⚡ **Zero-allocation hot path.** `ExecuteValueAsync` is backed by pooled `IValueTaskSource<T>` on *every* TFM (yes, even `net462`). No `Task` wrapping on the hot path. ([ADR-0007](docs/adr/0007-zero-alloc-value-task-source.md))
+- 🧩 **Drop-in DI + Hosting.** `services.AddExecutionWorker<TSession>()` + `AddExecutionWorkerHostedService<TSession>()` and you're done.
+- 💫 **Pluggable schedulers.** `LeastQueued` and `RoundRobin` ship in the box; bring your own via `IWorkerScheduler<TSession>`. ([ADR-0002](docs/adr/0002-pluggable-worker-scheduler.md))
+- 🔭 **Batteries-included observability.** `ActivitySource` + `Meter` with public constant names, ready for OpenTelemetry. ([ADR-0003](docs/adr/0003-public-diagnostic-constants.md))
+- 🪟 **First-class Windows STA.** Flip a boolean, get an STA worker thread on Windows; silently ignored elsewhere.
+- ♻️ **Real session recycling.** After N operations, after a failure, or both — your call.
+- 🛡️ **Terminal-once faulting.** When a worker goes bad, it says so *once*, loudly, via `WorkerFaulted` — no silent-dead-thread surprises.
+- 🖥️ **9 TFMs, all green.** `net10.0`, `net9.0`, `net8.0`, `net481`, `net48`, `net472`, `net471`, `net47`, `net462` — tested across the full matrix on every build.
+- ✏️ **Source Link + snupkg.** Step into the library from your debugger without guessing.
+
+---
+
+## 📦 Packages
 
 | Package | What it gives you |
 | --- | --- |
-| `AdaskoTheBeAsT.Interop.Execution` | Core library: `ExecutionWorker<TSession>`, `ExecutionWorkerPool<TSession>`, `IExecutionSessionFactory<TSession>`, options, scheduler seam, diagnostics. |
-| `AdaskoTheBeAsT.Interop.Execution.DependencyInjection` | `Microsoft.Extensions.DependencyInjection` helpers: `AddExecutionWorker<TSession>()` / `AddExecutionWorkerPool<TSession>()` with `IOptions<T>` binding. |
-| `AdaskoTheBeAsT.Interop.Execution.Hosting` | `Microsoft.Extensions.Hosting` integration: `IHostedService` wrappers for worker / pool lifetime driven by the generic host. |
+| [`AdaskoTheBeAsT.Interop.Execution`](https://www.nuget.org/packages/AdaskoTheBeAsT.Interop.Execution/) | ⚓ Core: `ExecutionWorker<TSession>`, `ExecutionWorkerPool<TSession>`, `IExecutionSessionFactory<TSession>`, options, schedulers, diagnostics. |
+| [`AdaskoTheBeAsT.Interop.Execution.DependencyInjection`](https://www.nuget.org/packages/AdaskoTheBeAsT.Interop.Execution.DependencyInjection/) | 🧩 `Microsoft.Extensions.DependencyInjection` helpers: `AddExecutionWorker<TSession>()` / `AddExecutionWorkerPool<TSession>()` with `IOptions<T>` binding. |
+| [`AdaskoTheBeAsT.Interop.Execution.Hosting`](https://www.nuget.org/packages/AdaskoTheBeAsT.Interop.Execution.Hosting/) | 🏗️ `Microsoft.Extensions.Hosting` integration: `IHostedService` wrappers driving worker / pool lifetime from the generic host. |
 
-### Install
+### ⬇️ Install
 
 ```powershell
 dotnet add package AdaskoTheBeAsT.Interop.Execution
@@ -31,64 +57,97 @@ dotnet add package AdaskoTheBeAsT.Interop.Execution.DependencyInjection
 dotnet add package AdaskoTheBeAsT.Interop.Execution.Hosting
 ```
 
-Symbols ship as `.snupkg` with Source Link and embedded untracked sources, so you can step into library code from any debugger.
+Symbols ship as `.snupkg` with Source Link and embedded untracked sources. Step in. Look around. It's fine.
 
-## Target framework matrix
+---
 
-| TFM | Notes |
-| --- | --- |
-| `net10.0`, `net9.0`, `net8.0` | Primary targets; in-box `System.Threading.Channels` + `System.Diagnostics.DiagnosticSource`. |
-| `net481`, `net48`, `net472`, `net471`, `net47`, `net462` | Windows desktop; adds `System.Threading.Channels` + `System.Diagnostics.DiagnosticSource` via NuGet, plus the `IsExternalInit` polyfill. |
+## 🗺️ Target framework matrix
 
-Every TFM is built with `TreatWarningsAsErrors=true`, `ContinuousIntegrationBuild=true`, `Deterministic=true`, and every cell of the matrix is exercised in CI.
+| TFM | Status | Notes |
+| --- | :-: | --- |
+| `net10.0` | ✅ | Primary target; in-box `System.Threading.Channels` + `System.Diagnostics.DiagnosticSource`. |
+| `net9.0` | ✅ | Primary target. |
+| `net8.0` | ✅ | Primary target. |
+| `net481` | ✅ | Windows desktop; `System.Threading.Channels` + `System.Diagnostics.DiagnosticSource` via NuGet + `IsExternalInit` polyfill. |
+| `net48` | ✅ | Same as above. |
+| `net472` | ✅ | Same as above. |
+| `net471` | ✅ | Same as above. |
+| `net47` | ✅ | Same as above. |
+| `net462` | ✅ | Same as above. |
 
-## Core idea
+Every cell is built with `TreatWarningsAsErrors=true`, `ContinuousIntegrationBuild=true`, `Deterministic=true`, and exercised in CI.
 
-Instead of letting every interop-heavy engine invent its own:
+---
 
-- queue
-- worker thread
-- startup synchronization
-- session lifetime
-- disposal logic
-- failure / recycle behavior
+## 💡 The core idea
 
-you move that generic machinery into `ExecutionWorker<TSession>` or `ExecutionWorkerPool<TSession>`. Your engine becomes a thin adapter that says:
+Instead of every interop-heavy engine reinventing:
 
-1. how to create a session
-2. how to dispose a session
-3. what work should run on that session
+- a queue 📑
+- a worker thread 🧵
+- startup synchronisation 🚀
+- session lifetime ⏳
+- disposal logic 🗑️
+- failure / recycle behaviour ♻️
 
-## Main types
+...you park that generic machinery in `ExecutionWorker<TSession>` or `ExecutionWorkerPool<TSession>`. Your engine becomes a thin adapter that answers three questions:
 
-### `ExecutionWorker<TSession>`
+1. 🌱 How do I create a session?
+2. 🥀 How do I dispose a session?
+3. 🛠️ What work should run on that session?
 
-A single dedicated background thread that owns one `TSession`. Submitted work runs sequentially in FIFO order. Implements `IDisposable` and `IAsyncDisposable`.
+That's it. The rest is the library's problem now.
 
-Owns:
+```
+                        ┌──────────────────────────────┐
+   ExecuteAsync(x) ──▶  │   Channel<ExecutionWorkItem> │
+                        │   (multi-writer, 1 reader)   │
+                        └──────────────┬───────────────┘
+                                       │
+                                       ▼
+                            ┌───────────────────────┐
+                            │  Dedicated Thread     │
+                            │  owns ONE TSession    │  ◀──  STA on Windows
+                            │  runs work in FIFO    │        if you ask
+                            └───────────┬───────────┘
+                                        │
+                                        ▼
+                                ┌─────────────┐
+                                │  TSession   │  (native libs, COM, ...)
+                                └─────────────┘
+```
+
+---
+
+## 📚 Main types
+
+### ⚙️ `ExecutionWorker<TSession>`
+
+A single dedicated background thread that owns one `TSession`. Submitted work runs sequentially in FIFO order. Implements `IDisposable` *and* `IAsyncDisposable`.
+
+Owns 👇
 
 - a multi-writer / single-reader `Channel` of work items
 - one dedicated background `Thread` (optionally STA on Windows)
-- startup / shutdown lifecycle (sync `Initialize` + async `InitializeAsync(CancellationToken)`)
+- startup / shutdown lifecycle (`InitializeAsync(CancellationToken)` + sync `Initialize`)
 - cooperative cancellation of pending items on shutdown
-- session reuse
-- session recycle after failure or after N operations
-- observability (`IsFaulted`, `Fault`, `QueueDepth`, `WorkerFaulted` event)
+- session reuse + session recycle after failure or after N operations
+- observability via `Name`, `IsFaulted`, `Fault`, `QueueDepth`, `WorkerFaulted`, and the uniform `GetSnapshot()`
 
-### `ExecutionWorkerPool<TSession>`
+### ⚙️⚙️⚙️⚙️ `ExecutionWorkerPool<TSession>`
 
 Fan-out pool of `ExecutionWorker<TSession>` instances. Each pool worker owns a private session and a private queue; a pluggable `IWorkerScheduler<TSession>` picks which worker receives each submission.
 
-Owns:
+Owns 👇
 
 - multiple `ExecutionWorker<TSession>` instances
-- pluggable work distribution (see "Scheduling" below)
+- pluggable work distribution (see [Scheduling](#-scheduling) below)
 - one session per worker (ideal for isolated native DLL sets)
 - per-worker isolation for native state
 - parallel initialization and parallel disposal
-- aggregate observability (`QueueDepth`, `IsAnyFaulted`, `WorkerFaults`, forwarded `WorkerFaulted`)
+- aggregate observability (`QueueDepth`, `IsAnyFaulted`, `WorkerFaults`, `Workers`, forwarded `WorkerFaulted`, uniform `GetSnapshot()`)
 
-### `IExecutionSessionFactory<TSession>`
+### 🏭 `IExecutionSessionFactory<TSession>`
 
 ```csharp
 public interface IExecutionSessionFactory<TSession>
@@ -99,37 +158,41 @@ public interface IExecutionSessionFactory<TSession>
 }
 ```
 
-The factory owns creating the thread-affine session (loading native libraries, initializing modules) and disposing / unloading it. Both methods run on the dedicated worker thread.
+Creates the thread-affine session (loading native libs, initialising modules) and disposes / unloads it. Both methods run on the dedicated worker thread.
 
-### `ExecutionWorkerOptions`
+### 🎛️ `ExecutionWorkerOptions`
 
-`name`, `useStaThread`, `maxOperationsPerSession` (`0` = unlimited), `disposeTimeout` (default `Timeout.InfiniteTimeSpan`). Parameterless ctor + positional ctor + public setters so it binds cleanly via `IOptions<T>`.
+`Name`, `UseStaThread`, `MaxOperationsPerSession` (`0` = unlimited), `DisposeTimeout` (default `Timeout.InfiniteTimeSpan`), `Diagnostics` (scoped `ExecutionDiagnostics` instance — defaults to a process-wide `Shared` singleton). Parameterless ctor + positional ctor + public setters so it binds cleanly via `IOptions<T>`.
 
-### `ExecutionWorkerPoolOptions`
+### 🎛️ `ExecutionWorkerPoolOptions`
 
-`workerCount`, `name`, `useStaThread`, `maxOperationsPerSession`, `disposeTimeout`, `schedulingStrategy` (default `LeastQueued`). Same binding story.
+`WorkerCount`, `Name`, `UseStaThread`, `MaxOperationsPerSession`, `DisposeTimeout`, `SchedulingStrategy` (default `LeastQueued`), `Diagnostics`. Same binding story.
 
-### `ExecutionRequestOptions`
+### 🎛️ `ExecutionRequestOptions`
 
-Per-call knob: `recycleSessionOnFailure` (default `false`).
+Per-call knob: `RecycleSessionOnFailure` (default `false`).
 
-## STA behavior
+---
 
-If `useStaThread: true` is set:
+## 🪟 STA behavior
 
-- on Windows, the worker thread is configured as `STA` via `SetApartmentState(ApartmentState.STA)` (guarded by `OperatingSystem.IsWindows()` on net5+ and `PlatformID.Win32NT` on older TFMs).
-- on non-Windows, the flag is silently ignored.
+If `UseStaThread: true` is set:
 
-That makes the option safe for cross-platform callers that want "STA when possible" behavior.
+- ✅ On Windows, the worker thread is configured as `STA` via `SetApartmentState(ApartmentState.STA)` (guarded by `OperatingSystem.IsWindows()` on `net5+` and `PlatformID.Win32NT` on older TFMs).
+- 🤷 On non-Windows, the flag is silently ignored.
 
-## Quick example
+That makes the option safe for cross-platform callers that want "STA when possible" behaviour.
+
+---
+
+## 🚀 Quick example
 
 ```csharp
 using AdaskoTheBeAsT.Interop.Execution;
 
 public sealed class NativeSession
 {
-    public byte[] Render(string html) => [];
+    public byte[] Render(string html) => []; // call into your native lib here
 }
 
 public sealed class NativeSessionFactory : IExecutionSessionFactory<NativeSession>
@@ -142,9 +205,11 @@ public sealed class NativeSessionFactory : IExecutionSessionFactory<NativeSessio
 
     public void DisposeSession(NativeSession session)
     {
+        // free native handles here
     }
 }
 
+// 1. Spin up the worker.
 await using var worker = new ExecutionWorker<NativeSession>(
     new NativeSessionFactory(),
     new ExecutionWorkerOptions(
@@ -152,33 +217,37 @@ await using var worker = new ExecutionWorker<NativeSession>(
         useStaThread: true,
         maxOperationsPerSession: 500));
 
-await worker.InitializeAsync();
+await worker.InitializeAsync(cancellationToken);
 
-var bytes = await worker.ExecuteAsync(
-    (session, cancellationToken) => session.Render("<h1>Hello</h1>"),
+// 2. Throw work at it. Returns when the work item completes.
+byte[] bytes = await worker.ExecuteAsync(
+    (session, ct) => session.Render("<h1>Hello</h1>"),
     new ExecutionRequestOptions(recycleSessionOnFailure: true),
     cancellationToken);
 ```
 
-### `ValueTask` hot path
+### ⚡ Zero-alloc `ValueTask` hot path
 
-When the caller is already in `ValueTask` land (e.g. wrapping a native-interop async API) the `ExecuteValueAsync` extension overloads keep you in that domain without manually wrapping the returned `Task`:
+When the caller is already in `ValueTask` land (e.g. wrapping a native-interop async API) the **instance** `ExecuteValueAsync` overloads keep you in that domain with pooled `IValueTaskSource<T>` work items — **no inner `Task` allocation, on every TFM**:
 
 ```csharp
-using AdaskoTheBeAsT.Interop.Execution;
-
 int sessionId = await worker.ExecuteValueAsync(
-    (session, _) => session.SessionId);
+    (session, _) => session.SessionId,
+    cancellationToken: cancellationToken);
 ```
 
-## Pool: multiple workers
+See [ADR-0007](docs/adr/0007-zero-alloc-value-task-source.md) for the gritty details; [ADR-0004](docs/adr/0004-valuetask-hotpath-overloads.md) is kept as historical context.
 
-If one worker is not enough, use `ExecutionWorkerPool<TSession>`. Typical fits:
+---
 
-- several native library copies in separate folders
-- each worker should load its own isolated DLL set
-- one failed worker session should recycle without touching the others
-- several dedicated threads, but still serialized execution per worker
+## 🏭🏭🏭🏭 Pool: multiple workers
+
+If one worker is not enough, use `ExecutionWorkerPool<TSession>`. Great fit when:
+
+- 📁 you have several native library copies in separate folders
+- 📦 each worker should load its own isolated DLL set
+- ♻️ one failed worker session should recycle without touching the others
+- 🏎️ you want several dedicated threads, but still serialised execution *per* worker
 
 ```csharp
 await using var pool = new ExecutionWorkerPool<NativePoolSession>(
@@ -189,7 +258,7 @@ await using var pool = new ExecutionWorkerPool<NativePoolSession>(
         useStaThread: true,
         maxOperationsPerSession: 250));
 
-await pool.InitializeAsync();
+await pool.InitializeAsync(cancellationToken);
 
 var result = await pool.ExecuteAsync(
     (session, ct) => session.Render("<h1>Hello from pool</h1>"),
@@ -197,14 +266,18 @@ var result = await pool.ExecuteAsync(
     cancellationToken);
 ```
 
-## Scheduling
+> 💡 **Tip:** need every worker to share the exact same factory? There's a single-factory constructor overload too: `new ExecutionWorkerPool<T>(factory, options)`. Nice and tidy for stateless factories. ([ADR-0008](docs/adr/0008-uniform-snapshot-surface.md))
+
+---
+
+## 🚦 Scheduling
 
 The pool ships with two built-in schedulers and a public `IWorkerScheduler<TSession>` seam if you need something bespoke.
 
-| Built-in | Semantics |
-| --- | --- |
-| `LeastQueuedWorkerScheduler<TSession>` (default) | Picks the healthy worker with the smallest `QueueDepth`. Ties break via a shared rolling index so equal-depth workers rotate. Skips faulted workers. Early-exits when it finds a zero-depth worker. |
-| `RoundRobinWorkerScheduler<TSession>` | Strict rotation across healthy workers via an `Interlocked` index. Skips faulted workers. |
+| Built-in | Icon | Semantics |
+| --- | :-: | --- |
+| `LeastQueuedWorkerScheduler<TSession>` *(default)* | ⚖️ | Picks the healthy worker with the smallest `QueueDepth`. Ties break via a shared rolling index so equal-depth workers rotate. Skips faulted workers. Early-exits when it finds a zero-depth worker. |
+| `RoundRobinWorkerScheduler<TSession>` | 🔄 | Strict rotation across healthy workers via an `Interlocked` index. Skips faulted workers. |
 
 Swap built-ins via options, or plug in a custom scheduler via the pool ctor:
 
@@ -222,35 +295,41 @@ await using var pool = new ExecutionWorkerPool<NativeSession>(
     custom);
 ```
 
-Rationale, trade-offs, and the faulted-worker contract are captured in [`docs/adr/0002-pluggable-worker-scheduler.md`](docs/adr/0002-pluggable-worker-scheduler.md).
+Rationale, trade-offs, and the faulted-worker contract are captured in [ADR-0002](docs/adr/0002-pluggable-worker-scheduler.md).
 
-## When to use what
+---
 
-### Choose `ExecutionWorker<TSession>` when
+## 🤔 When to use what
 
-- the native engine is effectively process-global
-- the library is known to be thread-sensitive
-- you want strict serialized access to one engine instance
-- you want exactly one owner thread
+### 1️⃣ Choose `ExecutionWorker<TSession>` when
 
-### Choose `ExecutionWorkerPool<TSession>` when
+- 🔒 the native engine is effectively process-global
+- 🥵 the library is known to be thread-sensitive
+- ⛔ you want strict serialised access to one engine instance
+- 👑 you want exactly one owner thread
 
-- you have isolated native copies per worker
-- the library can run in parallel across separate worker-owned sessions
-- you want better throughput
-- you want one worker to recycle independently from the others
+### 4️⃣ Choose `ExecutionWorkerPool<TSession>` when
 
-## Session recycle story
+- 👤👤👤👤 you have isolated native copies per worker
+- 🏎️🏎️ the library can run in parallel across separate worker-owned sessions
+- 🚀 you want better throughput
+- 🔧 you want one worker to recycle independently from the others
+
+---
+
+## ♻️ Session recycle story
 
 You can choose to recycle the session:
 
-- after a failed request (`ExecutionRequestOptions.RecycleSessionOnFailure = true`)
-- after a fixed number of operations (`ExecutionWorkerOptions.MaxOperationsPerSession > 0`)
-- or both
+- ❌ after a failed request — `ExecutionRequestOptions.RecycleSessionOnFailure = true`
+- 💯 after a fixed number of operations — `ExecutionWorkerOptions.MaxOperationsPerSession > 0`
+- ✨ or both
 
 Set `maxOperationsPerSession: 0` when you want unlimited session lifetime and only failure-based recycling.
 
-## DI integration
+---
+
+## 🧩 DI integration
 
 ```csharp
 using AdaskoTheBeAsT.Interop.Execution;
@@ -267,9 +346,11 @@ services.AddExecutionWorker<NativeSession>(options =>
 // resolve IExecutionWorker<NativeSession> from DI and use it as usual
 ```
 
-`AddExecutionWorkerPool<TSession>` is the pool-flavored equivalent and binds `IOptions<ExecutionWorkerPoolOptions>`.
+`AddExecutionWorkerPool<TSession>` is the pool-flavoured equivalent and binds `IOptions<ExecutionWorkerPoolOptions>`.
 
-## Generic host integration
+---
+
+## 🏗️ Generic host integration
 
 ```csharp
 using AdaskoTheBeAsT.Interop.Execution.Hosting;
@@ -284,16 +365,18 @@ services.AddExecutionWorkerHostedService<NativeSession>(options =>
 
 The `IHostedService` wrappers drive `InitializeAsync` on `StartAsync` and `DisposeAsync` on `StopAsync`, idempotent against double-stop. `AddExecutionWorkerPoolHostedService<TSession>` covers the pool.
 
-## Observability
+---
 
-Every worker emits to a shared `ActivitySource` and `Meter` named `AdaskoTheBeAsT.Interop.Execution`.
+## 🔭 Observability
+
+Every worker emits to an `ActivitySource` and `Meter` named `AdaskoTheBeAsT.Interop.Execution` (customisable per worker via `ExecutionWorkerOptions.Diagnostics` — see [ADR-0009](docs/adr/0009-scoped-execution-diagnostics.md) for scoped emitters).
 
 | Instrument | Kind | Tags |
 | --- | --- | --- |
-| `ExecutionWorker.Execute` | `Activity` (span) | `worker.name` |
-| `execution.worker.operations` | `Counter<long>` | `worker.name`, `outcome` ∈ `success` / `faulted` / `cancelled` |
-| `execution.worker.session_recycles` | `Counter<long>` | `worker.name`, `reason` ∈ `max_operations` / `failure` |
-| `execution.worker.queue_depth` | `ObservableGauge<int>` | `worker.name` |
+| `ExecutionWorker.Execute` | 📑 `Activity` (span) | `worker.name` |
+| `execution.worker.operations` | 📈 `Counter<long>` | `worker.name`, `outcome` ∈ `success` / `faulted` / `cancelled` |
+| `execution.worker.session_recycles` | 📈 `Counter<long>` | `worker.name`, `reason` ∈ `max_operations` / `failure` |
+| `execution.worker.queue_depth` | 📉 `ObservableGauge<int>` | `worker.name` |
 
 All these identifiers are exposed as `public const string` on `ExecutionDiagnosticNames`, so telemetry pipelines can subscribe without hard-coding strings:
 
@@ -307,43 +390,71 @@ builder.Services.AddOpenTelemetry()
     .WithMetrics(m => m.AddMeter(ExecutionDiagnosticNames.SourceName));
 ```
 
-When no listener is attached, `StartActivity` returns `null` and the instrumentation is allocation-free.
+When no listener is attached, `StartActivity` returns `null` and the instrumentation is allocation-free. ⚡
 
-See [`docs/adr/0003-public-diagnostic-constants.md`](docs/adr/0003-public-diagnostic-constants.md) for why the identifiers are a public contract.
+See [ADR-0003](docs/adr/0003-public-diagnostic-constants.md) for why the identifiers are a public contract.
 
-## Faulting semantics
+---
 
-`ExecutionWorker<TSession>` is **terminal-once**: when a work item throws a non-cancellation exception during startup or session creation — or when `DisposeSession` throws during shutdown — `_fatalFailure` latches, `IsFaulted` flips to `true`, and `WorkerFaulted` fires exactly once. Subsequent `ExecuteAsync` calls rethrow the original exception synchronously (unwrapped via `ExceptionDispatchInfo`). The worker cannot be re-initialised after faulting.
+## ⚠️ Faulting semantics
 
-Pool consumers observe the same contract aggregated: `IsAnyFaulted`, `WorkerFaults`, and a forwarded `WorkerFaulted` event carrying the originating worker name.
+`ExecutionWorker<TSession>` is **terminal-once**: when a work item throws a non-cancellation exception during startup or session creation — or when `DisposeSession` throws during shutdown — `_fatalFailure` latches, `IsFaulted` flips to `true`, and `WorkerFaulted` fires *exactly once*. Subsequent `ExecuteAsync` calls rethrow the original exception synchronously (unwrapped via `ExceptionDispatchInfo`). The worker cannot be re-initialised after faulting.
 
-## Build and test
+Pool consumers observe the same contract aggregated: `IsAnyFaulted`, `WorkerFaults`, and a forwarded `WorkerFaulted` event carrying the originating worker name. 🔔
+
+---
+
+## 🧪 Build and test
 
 ```powershell
 dotnet build  .\AdaskoTheBeAsT.Interop.slnx
 dotnet test   .\AdaskoTheBeAsT.Interop.slnx --no-build
 ```
 
-Test suites:
-
 | Project | Role |
 | --- | --- |
-| `test/unit/AdaskoTheBeAsT.Interop.Execution.Test` | Unit + behavioural tests (fault propagation, dispose idempotency, cancellation, telemetry smoke, scheduler contract). |
-| `test/unit/AdaskoTheBeAsT.Interop.Execution.DependencyInjection.Test` | DI registration, options binding, lifetime. |
-| `test/unit/AdaskoTheBeAsT.Interop.Execution.Hosting.Test` | `IHostedService` start/stop lifecycle, idempotent shutdown. |
-| `test/integ/AdaskoTheBeAsT.Interop.Execution.IntegrationTest` | Multi-threaded submission, STA on Windows, reentrant dispose, session recycling, `ValueTask` overloads, diagnostic-names contract. |
+| `test/unit/AdaskoTheBeAsT.Interop.Execution.Test` | 🔬 Unit + behavioural (fault propagation, dispose idempotency, cancellation, telemetry smoke, scheduler contract). |
+| `test/unit/AdaskoTheBeAsT.Interop.Execution.DependencyInjection.Test` | 🧩 DI registration, options binding, lifetime. |
+| `test/unit/AdaskoTheBeAsT.Interop.Execution.Hosting.Test` | 🏗️ `IHostedService` start/stop lifecycle, idempotent shutdown. |
+| `test/integ/AdaskoTheBeAsT.Interop.Execution.IntegrationTest` | 🤝 Multi-threaded submission, STA on Windows, reentrant dispose, session recycling, zero-alloc `ValueTask`, snapshot surface, scoped diagnostics. |
 
-All four projects run across the full 9-target matrix (`net10.0`, `net9.0`, `net8.0`, `net481`, `net48`, `net472`, `net471`, `net47`, `net462`).
-
-## Architecture Decision Records
-
-Small, self-contained design decisions taken on this codebase live under [`docs/adr/`](docs/adr/). Start with the [index](docs/adr/README.md).
-
-## Extra notes
-
-- WkHtml migration details live in [`wkhtml.md`](./wkhtml.md).
-- Design rationale for every recent change is under [`docs/adr/`](docs/adr/).
+All four projects run across the full 9-target matrix.
 
 ---
 
-Built for the kind of interop code that likes one owner thread, explicit lifecycle, and zero drama.
+## 📜 Architecture Decision Records
+
+Small, self-contained design decisions taken on this codebase live under [`docs/adr/`](docs/adr/). Start with the [index](docs/adr/README.md). Highlights:
+
+- 🧭 [ADR-0002 — pluggable worker scheduler](docs/adr/0002-pluggable-worker-scheduler.md)
+- 🏷️ [ADR-0003 — public diagnostic constants](docs/adr/0003-public-diagnostic-constants.md)
+- ⚡ [ADR-0007 — zero-allocation `ExecuteValueAsync`](docs/adr/0007-zero-alloc-value-task-source.md)
+- 📸 [ADR-0008 — uniform snapshot surface](docs/adr/0008-uniform-snapshot-surface.md)
+- 🔭 [ADR-0009 — scoped `ExecutionDiagnostics`](docs/adr/0009-scoped-execution-diagnostics.md)
+
+---
+
+## 🙋 Contributing
+
+Found a bug? Got an idea? Spotted a typo that's been haunting you? 👻
+
+1. 🐙 Open an issue describing the problem or the proposal.
+2. 🛠️ Fork + branch (`feature/your-idea`).
+3. ✅ Run `dotnet build` + `dotnet test` across the full matrix.
+4. ✨ Add/update tests and an ADR if the change is load-bearing.
+5. 🚀 Open a PR — the strict-build + CI will do the rest.
+
+---
+
+## 📚 Further reading
+
+- 📄 [`wkhtml.md`](./wkhtml.md) — WkHtml migration notes.
+- 📁 [`docs/adr/`](docs/adr/) — design rationale for every recent change.
+- 📝 [`CHANGELOG.md`](./CHANGELOG.md) — what landed when.
+
+---
+
+<p align="center">
+  Built for the kind of interop code that likes <strong>one owner thread</strong>, <strong>explicit lifecycle</strong>, and <strong>zero drama</strong>. ✨<br/>
+  Made with ❤️ (and a lot of coffee ☕) by <a href="https://github.com/AdaskoTheBeAsT">AdaskoTheBeAsT</a>.
+</p>

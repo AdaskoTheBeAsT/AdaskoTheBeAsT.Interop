@@ -1,4 +1,10 @@
 <Solution>
+  <Folder Name="/.github/">
+    <File Path=".github/CODEOWNERS" />
+  </Folder>
+  <Folder Name="/.github/workflows/">
+    <File Path=".github/workflows/ci.yml" />
+  </Folder>
   <Folder Name="/.props/">
     <File Path=".editorconfig" />
     <File Path=".gitignore" />

@@ -95,6 +95,19 @@ public sealed class ExecutionWorkerPoolOptions
     /// </summary>
     public ExecutionDiagnostics? Diagnostics { get; set; }
 
+    /// <summary>Gets or sets each worker's admission capacity. Zero means unlimited.</summary>
+    public int QueueCapacity { get; set; }
+
+    /// <summary>Gets or sets shutdown behavior for requests waiting on each worker.</summary>
+    public ExecutionShutdownMode ShutdownMode { get; set; }
+
+    internal ExecutionWorkerPoolOptions Snapshot() => new(
+        WorkerCount, Name, UseStaThread, MaxOperationsPerSession, DisposeTimeout, SchedulingStrategy, Diagnostics)
+    {
+        QueueCapacity = QueueCapacity,
+        ShutdownMode = ShutdownMode,
+    };
+
     // S3928 / MA0015 / S3236 disabled: Validate() validates the instance's
     // public properties (it has no parameters). The paramName argument surfaces
     // the offending property to callers, matching the ArgumentOutOfRangeException
@@ -113,9 +126,20 @@ public sealed class ExecutionWorkerPoolOptions
             throw new ArgumentOutOfRangeException(nameof(MaxOperationsPerSession));
         }
 
-        if (DisposeTimeout < TimeSpan.Zero && DisposeTimeout != Timeout.InfiniteTimeSpan)
+        if ((DisposeTimeout < TimeSpan.Zero && DisposeTimeout != Timeout.InfiniteTimeSpan) ||
+            DisposeTimeout.TotalMilliseconds > int.MaxValue)
         {
             throw new ArgumentOutOfRangeException(nameof(DisposeTimeout));
+        }
+
+        if (QueueCapacity < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(QueueCapacity));
+        }
+
+        if (ShutdownMode != ExecutionShutdownMode.Drain && ShutdownMode != ExecutionShutdownMode.CancelPending)
+        {
+            throw new ArgumentOutOfRangeException(nameof(ShutdownMode));
         }
 
 #if NET5_0_OR_GREATER

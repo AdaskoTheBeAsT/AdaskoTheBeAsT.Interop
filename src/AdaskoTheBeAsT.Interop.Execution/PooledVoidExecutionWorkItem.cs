@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Threading.Tasks.Sources;
 
 namespace AdaskoTheBeAsT.Interop.Execution;
@@ -31,6 +32,8 @@ internal sealed class PooledVoidExecutionWorkItem<TSession>
     private Action<TSession, CancellationToken>? _action;
     private ExecutionRequestOptions _options = ExecutionRequestOptions.Default;
     private CancellationToken _cancellationToken;
+    private int _completed;
+    private bool _canceled;
 
     private PooledVoidExecutionWorkItem()
     {
@@ -39,6 +42,8 @@ internal sealed class PooledVoidExecutionWorkItem<TSession>
     public CancellationToken CancellationToken => _cancellationToken;
 
     public ExecutionRequestOptions Options => _options;
+
+    public ActivityContext ParentContext { get; private set; }
 
     public short Version => _core.Version;
 
@@ -59,6 +64,9 @@ internal sealed class PooledVoidExecutionWorkItem<TSession>
         item._action = action;
         item._options = options;
         item._cancellationToken = cancellationToken;
+        item.ParentContext = Activity.Current?.Context ?? default;
+        item._completed = 0;
+        item._canceled = false;
         return item;
     }
 
@@ -67,38 +75,40 @@ internal sealed class PooledVoidExecutionWorkItem<TSession>
         var action = _action;
         if (action is null)
         {
-            _core.SetException(new InvalidOperationException("Work item action is unavailable."));
-            return;
+            throw new InvalidOperationException("Work item action is unavailable.");
         }
 
-        try
+        action(session, _cancellationToken);
+    }
+
+    public void TrySetResult()
+    {
+        if (Interlocked.Exchange(ref _completed, 1) == 0)
         {
-            action(session, _cancellationToken);
             _core.SetResult(default);
-        }
-        catch (OperationCanceledException exception) when (_cancellationToken.IsCancellationRequested)
-        {
-            _core.SetException(exception);
-        }
-        catch (Exception exception)
-        {
-            _core.SetException(exception);
         }
     }
 
     public void TrySetException(Exception exception)
     {
-        _core.SetException(exception);
+        if (Interlocked.Exchange(ref _completed, 1) == 0)
+        {
+            _core.SetException(exception);
+        }
     }
 
     public void TrySetCanceled()
     {
-        _core.SetException(new OperationCanceledException(_cancellationToken));
+        if (Interlocked.Exchange(ref _completed, 1) == 0)
+        {
+            _canceled = true;
+            _core.SetException(new OperationCanceledException(_cancellationToken));
+        }
     }
 
     public void GetResult(short token)
     {
-        if (token != _core.Version)
+        if (token != _core.Version || _core.GetStatus(token) == ValueTaskSourceStatus.Pending)
         {
             _core.GetResult(token);
             return;
@@ -114,7 +124,11 @@ internal sealed class PooledVoidExecutionWorkItem<TSession>
         }
     }
 
-    public ValueTaskSourceStatus GetStatus(short token) => _core.GetStatus(token);
+    public ValueTaskSourceStatus GetStatus(short token)
+    {
+        var status = _core.GetStatus(token);
+        return status == ValueTaskSourceStatus.Canceled && !_canceled ? ValueTaskSourceStatus.Faulted : status;
+    }
 
     public void OnCompleted(
         Action<object?> continuation,
@@ -130,6 +144,7 @@ internal sealed class PooledVoidExecutionWorkItem<TSession>
         _action = null;
         _options = ExecutionRequestOptions.Default;
         _cancellationToken = default;
+        ParentContext = default;
         _core.Reset();
 
         if (Interlocked.Increment(ref _pooledCount) > MaxPoolSize)

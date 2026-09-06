@@ -41,19 +41,9 @@ public sealed class ReentrancyExecutionWorkerTest
             await worker.DisposeAsync();
         }
 
-        // The outer DisposeAsync is idempotent (returns synchronously because
-        // reentrant dispose already flipped _disposeState), so session disposal
-        // happens asynchronously on the worker thread's finally block. Poll with
-        // a bounded timeout to observe it.
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (factory.DisposeCount < 1 && DateTime.UtcNow < deadline)
-        {
-            await Task.Delay(TimeSpan.FromMilliseconds(25));
-        }
-
-        factory.DisposeCount.Should().BeGreaterThanOrEqualTo(
+        factory.DisposeCount.Should().Be(
             1,
-            "the session must eventually be disposed on the worker thread's unwind after reentrant Dispose()");
+            "external DisposeAsync must join teardown even after reentrant Dispose()");
     }
 
     [Fact]

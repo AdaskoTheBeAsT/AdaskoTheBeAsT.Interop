@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace AdaskoTheBeAsT.Interop.Execution;
 
 /// <summary>
@@ -16,7 +18,11 @@ internal interface IExecutionWorkItem<in TSession>
 
     ExecutionRequestOptions Options { get; }
 
+    ActivityContext ParentContext { get; }
+
     void Execute(TSession session);
+
+    void TrySetResult();
 
     void TrySetException(Exception exception);
 

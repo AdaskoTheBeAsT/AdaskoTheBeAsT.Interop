@@ -60,7 +60,7 @@ public interface IExecutionWorkerPool<TSession> : IDisposable, IAsyncDisposable
     /// Starts every worker concurrently and awaits their initialization in
     /// parallel.
     /// </summary>
-    /// <param name="cancellationToken">Token that cancels startup across all workers.</param>
+    /// <param name="cancellationToken">Cancels this caller's wait without stopping shared worker startup.</param>
     /// <returns>A task that completes when every worker is ready to accept work.</returns>
     Task InitializeAsync(CancellationToken cancellationToken = default);
 

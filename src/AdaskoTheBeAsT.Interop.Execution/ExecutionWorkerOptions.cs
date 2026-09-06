@@ -105,6 +105,22 @@ public sealed class ExecutionWorkerOptions
     /// </summary>
     public ExecutionDiagnostics? Diagnostics { get; set; }
 
+    /// <summary>
+    /// Gets or sets the maximum admitted requests waiting for startup or execution.
+    /// Zero means unlimited. Excess submissions fault with <see cref="InvalidOperationException"/>.
+    /// </summary>
+    public int QueueCapacity { get; set; }
+
+    /// <summary>Gets or sets shutdown behavior. Running delegates are never forcibly interrupted.</summary>
+    public ExecutionShutdownMode ShutdownMode { get; set; }
+
+    internal ExecutionWorkerOptions Snapshot() => new(
+        Name, UseStaThread, MaxOperationsPerSession, DisposeTimeout, Diagnostics)
+    {
+        QueueCapacity = QueueCapacity,
+        ShutdownMode = ShutdownMode,
+    };
+
     // S3928 / MA0015 / S3236 disabled: Validate() validates the instance's
     // public properties (it has no parameters). The paramName argument is used
     // to surface the offending property name to callers, matching the
@@ -118,9 +134,20 @@ public sealed class ExecutionWorkerOptions
             throw new ArgumentOutOfRangeException(nameof(MaxOperationsPerSession));
         }
 
-        if (DisposeTimeout < TimeSpan.Zero && DisposeTimeout != Timeout.InfiniteTimeSpan)
+        if ((DisposeTimeout < TimeSpan.Zero && DisposeTimeout != Timeout.InfiniteTimeSpan) ||
+            DisposeTimeout.TotalMilliseconds > int.MaxValue)
         {
             throw new ArgumentOutOfRangeException(nameof(DisposeTimeout));
+        }
+
+        if (QueueCapacity < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(QueueCapacity));
+        }
+
+        if (ShutdownMode != ExecutionShutdownMode.Drain && ShutdownMode != ExecutionShutdownMode.CancelPending)
+        {
+            throw new ArgumentOutOfRangeException(nameof(ShutdownMode));
         }
     }
 #pragma warning restore S3928, MA0015, S3236

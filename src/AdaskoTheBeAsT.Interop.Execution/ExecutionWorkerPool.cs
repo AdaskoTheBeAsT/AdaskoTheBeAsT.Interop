@@ -131,12 +131,12 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
 #endif
 
         _ = options ?? throw new ArgumentNullException(nameof(options));
-        options.Validate();
-        _options = options;
-        _workers = CreateWorkers(sessionFactoryFactory, options);
-        _workerView = _workers;
-        _disposeTimeout = options.DisposeTimeout;
-        _scheduler = scheduler ?? ResolveBuiltInScheduler(options.SchedulingStrategy);
+        _options = options.Snapshot();
+        _options.Validate();
+        _scheduler = scheduler ?? ResolveBuiltInScheduler(_options.SchedulingStrategy);
+        _workers = CreateWorkers(sessionFactoryFactory, _options);
+        _workerView = Array.AsReadOnly(_workers);
+        _disposeTimeout = _options.DisposeTimeout;
 
         foreach (var worker in _workers)
         {
@@ -200,6 +200,8 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
     /// <inheritdoc />
     public string? Name => _options.Name;
 
+    private bool IsCurrentThread => _workers.Any(static worker => worker.IsCurrentThread);
+
     /// <inheritdoc />
     public ExecutionWorkerPoolSnapshot GetSnapshot()
     {
@@ -217,10 +219,10 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
     {
         ThrowIfDisposed();
 
-        var startupTasks = StartAllWorkers(CancellationToken.None);
-
         try
         {
+            var startupTasks = StartAllWorkers(CancellationToken.None);
+
             // Safe to block here (VSTHRD002 disabled): each worker's startup Task is signaled from
             // its own dedicated worker Thread via a RunContinuationsAsynchronously TCS, so no caller
             // SynchronizationContext is captured and no sync-over-async deadlock is possible.
@@ -242,19 +244,26 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
-
-        var startupTasks = StartAllWorkers(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
 
         try
         {
+            var startupTasks = StartAllWorkers(CancellationToken.None);
+
             // Parallel startup: each worker's CreateSession runs on its own dedicated thread
             // concurrently, so overall pool init time is O(max(CreateSession)) instead of
             // O(sum(CreateSession)) as the sequential foreach+await pattern would give.
-            await Task.WhenAll(startupTasks).ConfigureAwait(false);
+            await ExecutionHelpers.WaitForStartupAsync(
+                Task.WhenAll(startupTasks), cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // One caller abandoning startup must not stop other callers' workers.
+            throw;
         }
         catch
         {
-            CleanupFailedInitialization();
+            _ = EnsureDisposeStartedAsync();
             throw;
         }
     }
@@ -318,11 +327,13 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
     /// <see cref="DisposeAsync"/>), so callers are guaranteed to observe drain completion —
     /// including the case where a prior synchronous <see cref="Dispose"/> returned early on
     /// <see cref="ExecutionWorkerPoolOptions.DisposeTimeout"/>.
+    /// A call from any owned worker only requests shutdown to avoid a self-wait.
     /// </summary>
     /// <returns>A <see cref="ValueTask"/> that completes once every worker thread exits.</returns>
     public ValueTask DisposeAsync()
     {
-        return new ValueTask(EnsureDisposeStartedAsync());
+        var exit = EnsureDisposeStartedAsync();
+        return IsCurrentThread ? default : new ValueTask(exit);
     }
 
     /// <summary>
@@ -335,6 +346,11 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
     public void Dispose()
     {
         var disposeTask = EnsureDisposeStartedAsync();
+        if (IsCurrentThread)
+        {
+            return;
+        }
+
         var timeout = _disposeTimeout;
 
         // Safe sync-over-async (VSTHRD002 disabled): the shared _disposeTask awaits each
@@ -348,7 +364,7 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
         bool completed;
         try
         {
-            completed = disposeTask.Wait(timeout);
+            completed = disposeTask.Wait((int)timeout.TotalMilliseconds, CancellationToken.None);
         }
         catch (AggregateException)
         {
@@ -404,19 +420,34 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
         var factoryProvider = sessionFactoryFactory;
         var workers = new ExecutionWorker<TSession>[options.WorkerCount];
 
-        for (var workerIndex = 0; workerIndex < workers.Length; workerIndex++)
+        var created = 0;
+        try
         {
-            var sessionFactory = factoryProvider(workerIndex)
-                ?? throw new InvalidOperationException("The session factory factory returned null.");
-
-            workers[workerIndex] = new ExecutionWorker<TSession>(
-                sessionFactory,
-                new ExecutionWorkerOptions(
-                    CreateWorkerName(options.Name, workerIndex),
+            for (; created < workers.Length; created++)
+            {
+                var sessionFactory = factoryProvider(created)
+                    ?? throw new InvalidOperationException("The session factory factory returned null.");
+                var workerOptions = new ExecutionWorkerOptions(
+                    CreateWorkerName(options.Name, created),
                     options.UseStaThread,
                     options.MaxOperationsPerSession,
                     options.DisposeTimeout,
-                    options.Diagnostics));
+                    options.Diagnostics)
+                {
+                    QueueCapacity = options.QueueCapacity,
+                    ShutdownMode = options.ShutdownMode,
+                };
+                workers[created] = new ExecutionWorker<TSession>(sessionFactory, workerOptions);
+            }
+        }
+        catch
+        {
+            for (var index = 0; index < created; index++)
+            {
+                ExecutionHelpers.TryIgnore(workers[index].Dispose);
+            }
+
+            throw;
         }
 
         return workers;
@@ -477,8 +508,10 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
         for (var workerIndex = 0; workerIndex < _workers.Length; workerIndex++)
         {
             var worker = _workers[workerIndex];
-            worker.WorkerFaulted -= OnWorkerFaulted;
-            disposeTasks[workerIndex] = worker.DisposeAsync().AsTask();
+
+            // Keep forwarding terminal teardown failures, including notifications
+            // that are still queued when the worker exit task completes.
+            disposeTasks[workerIndex] = worker.RequestStopAsync();
         }
 
         return Task.WhenAll(disposeTasks);
@@ -501,29 +534,17 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
 
         var selected = _scheduler.SelectWorker(_workerView)
             ?? throw new InvalidOperationException("The worker scheduler returned null.");
-        return selected;
-    }
-
-    private ExecutionWorker<TSession> SelectConcreteWorker()
-    {
-        ThrowIfDisposed();
-
-        var selected = _scheduler.SelectWorker(_workerView)
-            ?? throw new InvalidOperationException("The worker scheduler returned null.");
-
-        // Built-in schedulers always return one of the pool's own workers.
-        // Custom schedulers are contractually required to do the same — if a
-        // caller wires a scheduler that returns a foreign IExecutionWorker,
-        // the zero-alloc ExecuteValueAsync hot path cannot dispatch through
-        // it because the IValueTaskSource pool is keyed to ExecutionWorker<T>,
-        // so we fail loudly rather than fall back to a slower Task wrapper.
-        if (selected is ExecutionWorker<TSession> concrete)
+        if (selected is ExecutionWorker<TSession> concrete && Array.IndexOf(_workers, concrete) >= 0)
         {
             return concrete;
         }
 
-        throw new InvalidOperationException(
-            "The worker scheduler returned a worker that is not owned by this pool.");
+        throw new InvalidOperationException("The worker scheduler returned a worker that is not owned by this pool.");
+    }
+
+    private ExecutionWorker<TSession> SelectConcreteWorker()
+    {
+        return (ExecutionWorker<TSession>)SelectWorker();
     }
 
     private void ThrowIfDisposed()
@@ -540,13 +561,7 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
 
     private void CleanupFailedInitialization()
     {
-        Interlocked.Exchange(ref _disposeState, 1);
-
-        foreach (var worker in _workers)
-        {
-            worker.WorkerFaulted -= OnWorkerFaulted;
-            ExecutionHelpers.TryIgnore(worker.Dispose);
-        }
+        ExecutionHelpers.TryIgnore(Dispose);
     }
 
     private void OnWorkerFaulted(object? sender, WorkerFaultedEventArgs e)

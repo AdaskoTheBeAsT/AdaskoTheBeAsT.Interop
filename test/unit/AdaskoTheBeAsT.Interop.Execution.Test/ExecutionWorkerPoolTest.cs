@@ -413,6 +413,7 @@ public sealed class ExecutionWorkerPoolTest
         await action.Should().ThrowAsync<InvalidOperationException>().WithMessage("boom");
         await WaitUntilAsync(() => workerPool.IsAnyFaulted);
 
+        await WaitUntilAsync(() => raised.Count == 1);
         workerPool.IsAnyFaulted.Should().BeTrue();
         raised.Should().ContainSingle();
         raised.Single().Exception.Should().BeOfType<InvalidOperationException>().Which.Message.Should().Be("dispose boom");

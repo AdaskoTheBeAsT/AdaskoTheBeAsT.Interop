@@ -521,10 +521,10 @@ public sealed class ExecutionWorkerTest
 
         firstTask.IsFaulted.Should().BeTrue();
         firstTask.Exception.Should().NotBeNull();
-        firstTask.Exception!.GetBaseException().Should().BeOfType<InvalidOperationException>().Which.Message.Should().Be("boom");
+        firstTask.Exception.GetBaseException().Should().BeOfType<InvalidOperationException>().Which.Message.Should().Be("boom");
         secondTask.IsFaulted.Should().BeTrue();
         secondTask.Exception.Should().NotBeNull();
-        secondTask.Exception!.GetBaseException().Should().BeOfType<InvalidOperationException>().Which.Message.Should().Be("dispose boom");
+        secondTask.Exception.GetBaseException().Should().BeOfType<InvalidOperationException>().Which.Message.Should().Be("dispose boom");
         thirdTask.IsCanceled.Should().BeTrue();
     }
 
@@ -587,6 +587,7 @@ public sealed class ExecutionWorkerTest
         await action.Should().ThrowAsync<InvalidOperationException>().WithMessage("boom");
         await WaitUntilAsync(() => worker.IsFaulted);
 
+        await WaitUntilAsync(() => raised.Count == 1);
         raised.Should().ContainSingle();
         var single = raised.Single();
         single.Exception.Should().BeOfType<InvalidOperationException>().Which.Message.Should().Be("dispose boom");
@@ -1050,10 +1051,10 @@ public sealed class ExecutionWorkerTest
     }
 
     [Fact]
-    public void SetFatalFailure_ShouldRaiseWorkerFaultedEventOnlyOnce()
+    public async Task SetFatalFailure_ShouldRaiseWorkerFaultedEventOnlyOnceAsync()
     {
         var sessionFactory = new TrackingSessionFactory();
-        using var worker = new ExecutionWorker<TestSession>(sessionFactory);
+        await using var worker = new ExecutionWorker<TestSession>(sessionFactory);
 
         var faultCount = 0;
         worker.WorkerFaulted += (_, _) => Interlocked.Increment(ref faultCount);
@@ -1061,6 +1062,7 @@ public sealed class ExecutionWorkerTest
         SetFatalFailure(worker, new InvalidOperationException("first"));
         SetFatalFailure(worker, new InvalidOperationException("second"));
 
+        await WaitUntilAsync(() => Volatile.Read(ref faultCount) == 1);
         faultCount.Should().Be(1);
     }
 

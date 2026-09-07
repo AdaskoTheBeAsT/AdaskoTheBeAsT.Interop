@@ -8,7 +8,7 @@
 
   <PropertyGroup>
     <!-- Per-package metadata; shared packaging props come from src/Directory.Build.props. -->
-    <Description>Microsoft.Extensions.DependencyInjection helpers for AdaskoTheBeAsT.Interop.Execution: AddExecutionWorker&lt;TSession&gt;() and AddExecutionWorkerPool&lt;TSession&gt;() extensions with IOptions&lt;T&gt; binding for ExecutionWorkerOptions / ExecutionWorkerPoolOptions. Targets net10.0, net9.0, net8.0, and net481/net48/net472/net471/net47/net462.</Description>
+    <Description>Microsoft.Extensions.DependencyInjection helpers for AdaskoTheBeAsT.Interop.Execution: AddExecutionWorker&lt;TSession&gt;() and AddExecutionWorkerPool&lt;TSession&gt;() extensions with IOptions&lt;T&gt; binding for ExecutionWorkerOptions / ExecutionWorkerPoolOptions. Targets net10.0, net9.0, net8.0, and net481/net48/net472.</Description>
     <PackageTags>Interop;STA;Worker;WorkerPool;Threading;Session;DependencyInjection;DI;Microsoft.Extensions.DependencyInjection</PackageTags>
   </PropertyGroup>
 

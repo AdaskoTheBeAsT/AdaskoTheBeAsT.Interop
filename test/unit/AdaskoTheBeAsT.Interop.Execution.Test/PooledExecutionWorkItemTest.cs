@@ -209,6 +209,78 @@ public sealed class PooledExecutionWorkItemTest
             .WithMessage("Work item action is unavailable.");
     }
 
+    [Fact]
+    public void PooledValueWorkItem_ShouldBoundRetainedItemsAndRecoverAfterOverflow()
+    {
+        VerifyBoundedPool(
+            static () => PooledValueExecutionWorkItem<CapacitySession, int>.Rent(
+                static (session, _) => ++session.ExecutionCount, ExecutionRequestOptions.Default, CancellationToken.None),
+            static item =>
+            {
+                var version = item.Version;
+                var session = new CapacitySession();
+                item.Execute(session);
+                item.TrySetResult();
+                item.GetResult(version).Should().Be(1);
+                session.ExecutionCount.Should().Be(1);
+            });
+    }
+
+    [Fact]
+    public void PooledVoidWorkItem_ShouldBoundRetainedItemsAndRecoverAfterOverflow()
+    {
+        VerifyBoundedPool(
+            static () => PooledVoidExecutionWorkItem<CapacitySession>.Rent(
+                static (session, _) => session.ExecutionCount++, ExecutionRequestOptions.Default, CancellationToken.None),
+            static item =>
+            {
+                var version = item.Version;
+                var session = new CapacitySession();
+                item.Execute(session);
+                item.TrySetResult();
+                item.GetResult(version);
+                session.ExecutionCount.Should().Be(1);
+            });
+    }
+
+    private static void VerifyBoundedPool<TWorkItem>(Func<TWorkItem> rent, Action<TWorkItem> complete)
+        where TWorkItem : class
+    {
+        const int PoolCapacity = 256;
+        var rentItem = rent ?? throw new ArgumentNullException(nameof(rent));
+        var completeItem = complete ?? throw new ArgumentNullException(nameof(complete));
+        var previous = Array.Empty<TWorkItem>();
+        for (var round = 0; round < 3; round++)
+        {
+            var items = new TWorkItem[PoolCapacity + 1];
+            for (var index = 0; index < items.Length; index++)
+            {
+                items[index] = rentItem();
+                if (previous.Length != 0 && index < PoolCapacity)
+                {
+                    items[index].Should().BeSameAs(previous[index]);
+                }
+            }
+
+            if (previous.Length != 0)
+            {
+                items[PoolCapacity].Should().NotBeSameAs(previous[PoolCapacity]);
+            }
+
+            foreach (var item in items)
+            {
+                completeItem(item);
+            }
+
+            previous = items;
+        }
+    }
+
+    private sealed class CapacitySession
+    {
+        public int ExecutionCount { get; set; }
+    }
+
     private sealed class TestSession(int sessionId, int ownerThreadId)
     {
         public int SessionId { get; } = sessionId;

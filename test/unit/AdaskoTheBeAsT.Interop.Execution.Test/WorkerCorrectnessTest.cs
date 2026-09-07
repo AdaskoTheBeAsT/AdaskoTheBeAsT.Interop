@@ -208,7 +208,7 @@ public sealed class WorkerCorrectnessTest
         using var listener = new ActivityListener
         {
             ShouldListenTo = source => string.Equals(source.Name, diagnostics.SourceName, StringComparison.Ordinal),
-            Sample = static (ref ActivityCreationOptions<ActivityContext> _) =>
+            Sample = static (ref _) =>
                 throw new InvalidOperationException("listener"),
         };
         ActivitySource.AddActivityListener(listener);
@@ -216,6 +216,87 @@ public sealed class WorkerCorrectnessTest
             new SessionFactory(), new ExecutionWorkerOptions(diagnostics: diagnostics));
         var result = await AwaitAsync(worker.ExecuteAsync(static (s, _) => s.Id, cancellationToken: TestToken));
         result.Should().Be(1);
+        worker.IsFaulted.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ThrowingActivityStoppedListenerMustNotChangeRequestOutcomeAsync(bool pooled)
+    {
+        using var diagnostics = new ExecutionDiagnostics("throwing-stop." + Guid.NewGuid());
+        var notifications = 0;
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = source => string.Equals(source.Name, diagnostics.SourceName, StringComparison.Ordinal),
+            Sample = static (ref _) => ActivitySamplingResult.AllData,
+            ActivityStopped = _ =>
+            {
+                Interlocked.Increment(ref notifications);
+                throw new InvalidOperationException("activity listener");
+            },
+        };
+        ActivitySource.AddActivityListener(listener);
+        await using var worker = new ExecutionWorker<Session>(
+            new SessionFactory(), new ExecutionWorkerOptions(diagnostics: diagnostics));
+
+        (await AwaitAsync(SubmitAsync(worker, static (s, _) => s.Id, pooled))).Should().Be(1);
+        Func<Task<int>> fail = () => SubmitAsync(
+            worker, static (_, _) => throw new InvalidOperationException("delegate failure"), pooled);
+        await fail.Should().ThrowAsync<InvalidOperationException>().WithMessage("delegate failure");
+
+        Volatile.Read(ref notifications).Should().Be(2);
+        worker.IsFaulted.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ThrowingMetricListenersMustNotChangeRequestOrRecycleOutcomesAsync(bool pooled)
+    {
+        using var diagnostics = new ExecutionDiagnostics("throwing-metrics." + Guid.NewGuid());
+        var operations = 0;
+        var recycles = 0;
+        using var listener = new MeterListener
+        {
+            InstrumentPublished = (instrument, receiver) =>
+            {
+                if (string.Equals(instrument.Meter.Name, diagnostics.SourceName, StringComparison.Ordinal))
+                {
+                    receiver.EnableMeasurementEvents(instrument);
+                }
+            },
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, _, _, _) =>
+        {
+            if (string.Equals(instrument.Name, ExecutionDiagnosticNames.MetricOperations, StringComparison.Ordinal))
+            {
+                Interlocked.Increment(ref operations);
+            }
+            else if (string.Equals(instrument.Name, ExecutionDiagnosticNames.MetricSessionRecycles, StringComparison.Ordinal))
+            {
+                Interlocked.Increment(ref recycles);
+            }
+
+            throw new InvalidOperationException("metric listener");
+        });
+        listener.Start();
+        var factory = new SessionFactory();
+        await using var worker = new ExecutionWorker<Session>(
+            factory, new ExecutionWorkerOptions(maxOperationsPerSession: 1, diagnostics: diagnostics));
+
+        (await AwaitAsync(SubmitAsync(worker, static (s, _) => s.Id, pooled))).Should().Be(1);
+        Func<Task<int>> fail = () => SubmitAsync(
+            worker,
+            static (_, _) => throw new InvalidOperationException("delegate failure"),
+            pooled,
+            new ExecutionRequestOptions(recycleSessionOnFailure: true));
+        await fail.Should().ThrowAsync<InvalidOperationException>().WithMessage("delegate failure");
+        (await AwaitAsync(SubmitAsync(worker, static (s, _) => s.Id, pooled))).Should().Be(3);
+
+        Volatile.Read(ref operations).Should().Be(3);
+        Volatile.Read(ref recycles).Should().Be(3);
+        factory.DisposeCount.Should().Be(3);
         worker.IsFaulted.Should().BeFalse();
     }
 
@@ -382,7 +463,7 @@ public sealed class WorkerCorrectnessTest
         using var listener = new ActivityListener
         {
             ShouldListenTo = source => string.Equals(source.Name, diagnostics.SourceName, StringComparison.Ordinal),
-            Sample = (ref ActivityCreationOptions<ActivityContext> _) =>
+            Sample = (ref _) =>
             {
                 minimum = Math.Min(minimum, worker.QueueDepth);
                 return ActivitySamplingResult.None;
@@ -407,7 +488,7 @@ public sealed class WorkerCorrectnessTest
         using var listener = new ActivityListener
         {
             ShouldListenTo = activitySource => activitySource.Name.StartsWith(diagnostics.SourceName, StringComparison.Ordinal),
-            Sample = static (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllData,
+            Sample = static (ref _) => ActivitySamplingResult.AllData,
             ActivityStopped = activity =>
             {
                 if (string.Equals(activity.Source.Name, diagnostics.SourceName, StringComparison.Ordinal))
@@ -457,6 +538,60 @@ public sealed class WorkerCorrectnessTest
 
         await AwaitAsync(pooled ? pool.InitializeAsync(TestToken) : worker.InitializeAsync(TestToken));
         factory.CreateCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task SynchronousInitializationShouldCreateOnlyOneSessionAsync()
+    {
+        var factory = new SessionFactory();
+        await using var worker = new ExecutionWorker<Session>(factory);
+
+        await AwaitAsync(Task.Run(worker.Initialize, TestToken));
+        await AwaitAsync(Task.Run(worker.Initialize, TestToken));
+        (await worker.ExecuteAsync(static (s, _) => s.Id, cancellationToken: TestToken)).Should().Be(1);
+
+        factory.CreateCount.Should().Be(1);
+        worker.IsFaulted.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DisposalShouldCancelCooperativeStartupAndSettleQueuedRequestsAsync(bool pooled)
+    {
+        using var entered = new ManualResetEventSlim();
+        var factory = new SessionFactory(onCreate: token =>
+        {
+            entered.Set();
+            token.WaitHandle.WaitOne(Deadline).Should().BeTrue();
+            token.ThrowIfCancellationRequested();
+        });
+        await using var worker = new ExecutionWorker<Session>(factory);
+        var startup = worker.InitializeAsync(TestToken);
+        await WaitForSignalAsync(entered);
+        var executed = false;
+        var pending = SubmitAsync(
+            worker,
+            (s, _) =>
+            {
+                executed = true;
+                return s.Id;
+            },
+            pooled);
+
+        var exit = worker.DisposeAsync().AsTask();
+        Func<Task> initialize = () => AwaitAsync(startup);
+        await initialize.Should().ThrowAsync<OperationCanceledException>();
+        Func<Task<int>> request = () => AwaitAsync(pending);
+        await request.Should().ThrowAsync<ObjectDisposedException>();
+        await AwaitAsync(exit);
+
+        startup.IsCanceled.Should().BeTrue();
+        executed.Should().BeFalse();
+        factory.CreateCount.Should().Be(0);
+        factory.DisposeCount.Should().Be(0);
+        worker.QueueDepth.Should().Be(0);
+        worker.IsFaulted.Should().BeFalse();
     }
 
     [Theory]
@@ -709,8 +844,12 @@ public sealed class WorkerCorrectnessTest
         return listener;
     }
 
-    private static Task WaitForSignalAsync(ManualResetEventSlim signal) =>
-        Task.Run(() => signal.Wait(Deadline, TestToken).Should().BeTrue(), TestToken);
+    private static Task WaitForSignalAsync(ManualResetEventSlim signal)
+    {
+        return Task.Run(WaitForSignal, TestToken);
+
+        void WaitForSignal() => signal.Wait(Deadline, TestToken).Should().BeTrue();
+    }
 
     private static async Task AwaitAsync(Task task)
     {

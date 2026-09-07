@@ -83,11 +83,7 @@ internal sealed class PooledValueExecutionWorkItem<TSession, TResult>
 
     public void Execute(TSession session)
     {
-        var action = _action;
-        if (action is null)
-        {
-            throw new InvalidOperationException("Work item action is unavailable.");
-        }
+        var action = _action ?? throw new InvalidOperationException("Work item action is unavailable.");
 
         // The worker publishes completion only after all session/telemetry work.
         _result = action(session, _cancellationToken);

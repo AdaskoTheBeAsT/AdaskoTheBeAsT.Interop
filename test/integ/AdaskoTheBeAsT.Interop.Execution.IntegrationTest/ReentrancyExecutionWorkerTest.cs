@@ -28,7 +28,7 @@ public sealed class ReentrancyExecutionWorkerTest
 
             var completedFirst = await Task.WhenAny(
                 reentrantDisposeCompleted.Task,
-                Task.Delay(TimeSpan.FromSeconds(10)));
+                Task.Delay(TimeSpan.FromSeconds(10), TestCt.Current));
 
             completedFirst.Should().Be(
                 reentrantDisposeCompleted.Task,

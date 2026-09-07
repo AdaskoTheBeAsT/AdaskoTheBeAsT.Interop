@@ -312,7 +312,7 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
         ExecutionRequestOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        return SelectConcreteWorker().ExecuteValueAsync(action, options, cancellationToken);
+        return SelectWorker().ExecuteValueAsync(action, options, cancellationToken);
     }
 
     /// <summary>
@@ -337,7 +337,7 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
         ExecutionRequestOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        return SelectConcreteWorker().ExecuteValueAsync(action, options, cancellationToken);
+        return SelectWorker().ExecuteValueAsync(action, options, cancellationToken);
     }
 
     /// <summary>
@@ -547,7 +547,7 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
         return startupTasks;
     }
 
-    private IExecutionWorker<TSession> SelectWorker()
+    private ExecutionWorker<TSession> SelectWorker()
     {
         ThrowIfDisposed();
 
@@ -559,11 +559,6 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
         }
 
         throw new InvalidOperationException("The worker scheduler returned a worker that is not owned by this pool.");
-    }
-
-    private ExecutionWorker<TSession> SelectConcreteWorker()
-    {
-        return (ExecutionWorker<TSession>)SelectWorker();
     }
 
     private void ThrowIfDisposed()

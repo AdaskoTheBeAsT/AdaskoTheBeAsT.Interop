@@ -72,11 +72,7 @@ internal sealed class PooledVoidExecutionWorkItem<TSession>
 
     public void Execute(TSession session)
     {
-        var action = _action;
-        if (action is null)
-        {
-            throw new InvalidOperationException("Work item action is unavailable.");
-        }
+        var action = _action ?? throw new InvalidOperationException("Work item action is unavailable.");
 
         action(session, _cancellationToken);
     }

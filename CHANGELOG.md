@@ -5,23 +5,135 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.0] - Unreleased
+
+A correctness and lifecycle upgrade for applications using dedicated-thread
+native or COM sessions. Compared with tagged 1.0.0, this release makes pooled
+completion safe, aligns Task/ValueTask recovery, makes teardown waits reliable,
+and adds explicit overload and shutdown policies.
+
+**Breaking change:** the minimum supported .NET Framework version is now 4.7.2.
+This framework support change is the reason for the major version. Existing
+public signatures are retained on supported targets, but completion timing,
+fault-event ordering, option mutation, and validation also change. See the
+[migration guide](docs/migration-2.0.0.md) for retargeting and upgrade steps.
+
+### Removed
+
+- **.NET Framework 4.6.2, 4.7, and 4.7.1 support** (`net462`, `net47`, `net471`)
+  from all three packages and their test projects. The supported matrix is now
+  six targets: `net10.0`, `net9.0`, `net8.0`, `net481`, `net48`, and `net472`.
+  Applications on removed targets must retarget to .NET Framework 4.7.2 or
+  later before upgrading, or remain on 1.0.0. Modern .NET targets are unchanged.
+
+### Fixed
+
+- **Safe pooled completion.** The worker stages results, applies lifecycle policy
+  and diagnostics, and publishes completion as its last access to the item.
+  Consumers no longer return a source to the pool while the producer still uses
+  it. Pending/stale-token result access does not recycle the source; ValueTasks
+  still require exactly one observation.
+- **Task/ValueTask failure parity.** Pooled delegate errors now reach the same
+  recovery and telemetry path as Task errors, including
+  `RecycleSessionOnFailure`. An `OperationCanceledException` without cancellation
+  requested on the request token is a fault on both paths.
+- **Cleanup is part of request completion.** A request waits for any required
+  recycle teardown. If teardown fails after a successful delegate, the request
+  and worker fault. If both fail, the request keeps the delegate exception and
+  `Fault` exposes the terminal cleanup error. Replacement-session creation
+  failures also terminate the worker.
+- **Reliable external disposal joins.** Repeated worker/pool `DisposeAsync()`
+  calls await actual teardown, including after reentrant shutdown or a timed-out
+  synchronous `Dispose()`. Startup cancellation callbacks cannot block
+  `DisposeAsync` before it returns its join operation.
+- **Non-blocking cold submissions and correct queue accounting.** Async
+  submissions no longer wait synchronously for initial session creation.
+  Requests admitted during startup retain per-worker FIFO order; queue depth is
+  accounted before publication, preventing transient negative values.
+- **Fault publication before notification.** The first terminal fault is latched
+  and admission closed before `WorkerFaulted` runs on the thread pool.
+  Subscriber exceptions are contained. Pools continue forwarding final teardown
+  faults, even when notifications arrive after disposal.
+- **Best-effort telemetry.** Throwing activity/metric listeners cannot orphan or
+  fail a request. Execution spans capture the submitting activity context rather
+  than inheriting the worker thread's startup context.
+- **Pool ownership checks and rollback.** Custom schedulers receive a read-only
+  worker list and must return an actual pool member. Partial construction
+  disposes previously created workers and unregisters their diagnostics.
+- **Hosted shutdown deadlines.** Worker and pool `StopAsync(token)` cancel their
+  wait with `OperationCanceledException` if the host deadline expires before
+  cleanup completes. Cleanup continues; a later disposal can still join it.
+
+### Added
+
+- **`QueueCapacity`** on worker and pool options (`0` = unlimited). Limits waiting
+  requests, including during startup, but excludes the active request. Excess
+  submissions return faulted Task/ValueTask results with
+  `InvalidOperationException`. Capacity is per worker; a pool does not retry
+  another worker after rejection.
+- **`ExecutionShutdownMode`** with `Drain` (default) and `CancelPending`, selected
+  through `ShutdownMode` on worker and pool options. `CancelPending` skips work
+  not yet started; neither mode forcibly interrupts running delegates.
+- [Migration guide](docs/migration-2.0.0.md) and
+  [ADR-0010](docs/adr/0010-worker-completion-and-lifecycle.md) documenting the
+  completion, cancellation, admission, and shutdown contracts.
+
+### Changed
+
+- Worker/pool options are validated and copied at construction. Changing the
+  original options object no longer reconfigures a live instance.
+- `DisposeTimeout` above `int.MaxValue` milliseconds is rejected during
+  validation, rather than reaching an invalid synchronous wait. Use
+  `Timeout.InfiniteTimeSpan` for an unlimited wait.
+- Canceling `InitializeAsync(token)` abandons only that caller's wait, including
+  for pools. It does not stop shared startup; disposal separately requests
+  cancellation of initial session creation.
+
+### Regression coverage
+
+- Worker correctness tests cover completion after cleanup, failure/cancellation
+  parity, session lifecycle errors, external/reentrant disposal, startup FIFO,
+  startup-wait cancellation, queue depth/capacity, option snapshots, pool
+  membership, fault notification, and diagnostic listener failures.
+- Pooled work-item tests cover pending/stale access and publication ownership.
+- Hosted shutdown tests cover deadlines before and during the stop wait for
+  workers and pools. These tests target .NET 8/9/10 and .NET Framework
+  4.7.2/4.8/4.8.1; this
+  entry does not claim a new coverage percentage or benchmark result.
+
+### Scope
+
+Pooled ValueTasks on all TFMs, shared-factory pool constructors, snapshots,
+scoped diagnostics, and DI option isolation were already present in **1.0.0**.
+They are not new 2.0.0 features. Native execution is still synchronous and
+cooperatively canceled; STA does not supply a message pump, and worker sessions
+do not isolate process-global native state.
+
+## [1.0.0]
+
+Initial public release of the `AdaskoTheBeAsT.Interop.Execution` family.
+The development notes below were already included in the `v1.0.0` tag.
+Historical fault/completion behavior described here is superseded by the
+2.0.0 corrections above. The nine-target framework lists in this historical
+section describe 1.0.0, not the current six-target support matrix.
 
 ### Added
 
 #### `AdaskoTheBeAsT.Interop.Execution` (core)
 
-- **Zero-allocation `ExecuteValueAsync` hot path on every supported TFM.**
+- **Pooled `ExecuteValueAsync` hot path on every supported TFM.**
   `ExecutionWorker<TSession>` and `ExecutionWorkerPool<TSession>` expose
   instance `ExecuteValueAsync` overloads backed by pooled
   `IValueTaskSource<TResult>` / `IValueTaskSource` work items
   (`ManualResetValueTaskSourceCore<T>`). The `IValueTaskSource` primitives
   ship natively from `net8.0+` and are available on `net462`..`net481`
   through the `System.Threading.Tasks.Extensions` NuGet facade (pulled
-  in transitively by `System.Threading.Channels`), so the same zero-alloc
+  in transitively by `System.Threading.Channels`), so the same pooled
   code path runs on all nine TFMs — no `Task` → `ValueTask` wrapper
   fallback anywhere, and no public `ExecutionWorkerValueTaskExtensions`
-  static class to duplicate the API surface.
+  static class to duplicate the API surface. Pool reuse avoids source/Task
+  allocations, not all possible allocations. Completion ownership was corrected
+  in 2.0.0.
   See [`docs/adr/0007-zero-alloc-value-task-source.md`](docs/adr/0007-zero-alloc-value-task-source.md).
 - **`ExecutionWorkerPool<TSession>` single-factory constructors.** Two new
   overloads accept a single `IExecutionSessionFactory<TSession>` that is
@@ -39,7 +151,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     index-aligned `IReadOnlyList<ExecutionWorkerSnapshot> Workers`;
   - `IExecutionWorker<TSession>.GetSnapshot()` and
     `IExecutionWorkerPool<TSession>.GetSnapshot()` capture all fields in a
-    single call so dashboards cannot observe inconsistent mixes of values.
+    single call for convenient reporting. Queue depth is instantaneous, and
+    pool snapshots sample workers sequentially, not as an atomic pool-wide view.
 - **Scoped `ExecutionDiagnostics`** public class replaces the previous
   process-wide static diagnostics class. `ExecutionDiagnostics.Shared` is a
   lazy singleton that continues to emit under
@@ -251,8 +364,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### `AdaskoTheBeAsT.Interop.Execution` (core)
 
-- **`WorkerFaulted` / `IsFaulted` publication ordering.** `ExecutionWorker<TSession>.SetFatalFailure`
-  now dispatches the `WorkerFaulted` event *before* writing the fault through
+- **Historical `WorkerFaulted` / `IsFaulted` publication ordering (1.0.0 only).**
+  `ExecutionWorker<TSession>.SetFatalFailure` dispatched the `WorkerFaulted`
+  event *before* writing the fault through
   the volatile `_fatalFailure` field. This establishes a happens-before
   chain so any observer that sees `IsFaulted == true` (or
   `IsAnyFaulted == true` on a pool) has also seen every `WorkerFaulted`
@@ -261,7 +375,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   volatile write and the event dispatch, and assert on subscriber state
   that had not yet been produced. `WorkerFaultedEventArgs` still carries
   the exception, so event handlers do not rely on `IsFaulted` / `Fault`
-  inside their own scope.
+  inside their own scope. **2.0.0 replaces this ordering:** fault state is
+  published first, and notification runs asynchronously on the thread pool.
 - **`ExecutionWorkerPool<TSession>.Dispose` / `DisposeAsync` now share a
   single in-flight drain `Task`.** Previously a caller whose synchronous
   `Dispose()` timed out via `DisposeTimeout` would have the `_asyncDisposed`
@@ -313,11 +428,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `AddExecutionWorkerPool_ShouldIsolateOptionsAcrossDifferentSessionTypesAsync`)
   pin the isolation contract.
 
-## [1.0.0] - TBD
-
-Initial public release of the `AdaskoTheBeAsT.Interop.Execution` family.
-
-### Added
+### Initial package capabilities
 
 #### `AdaskoTheBeAsT.Interop.Execution` (core)
 
@@ -349,8 +460,8 @@ Initial public release of the `AdaskoTheBeAsT.Interop.Execution` family.
 - Terminal faulting model: `IsFaulted`, `Fault`, and a one-shot
   `WorkerFaulted` event aggregated at the pool level
   (`IsAnyFaulted`, `WorkerFaults`).
-- `ValueTask` hot-path extensions (`ExecuteValueAsync`) for callers already
-  living in the `ValueTask` domain.
+- Pooled instance `ExecuteValueAsync` overloads for callers using ValueTask.
+  The earlier extension-method fallback was removed before the 1.0.0 tag.
 - Synchronous `Dispose()` bounded by `DisposeTimeout`; asynchronous
   `DisposeAsync()` always waits for full drain. Reentrant `Dispose()` from
   inside a work item is safe.
@@ -398,5 +509,5 @@ Initial public release of the `AdaskoTheBeAsT.Interop.Execution` family.
   Asyncify, CodeCracker, ConcurrencyLab.ParallelChecker, ReflectionAnalyzer;
   every suppression carries a justifying comment.
 
-[Unreleased]: https://github.com/AdaskoTheBeAsT/AdaskoTheBeAsT.Interop/compare/v1.0.0...HEAD
+[2.0.0]: https://github.com/AdaskoTheBeAsT/AdaskoTheBeAsT.Interop/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/AdaskoTheBeAsT/AdaskoTheBeAsT.Interop/releases/tag/v1.0.0

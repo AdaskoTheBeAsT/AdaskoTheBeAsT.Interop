@@ -55,7 +55,7 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
         ExecutionWorkerOptions? options = null)
     {
         _sessionFactory = sessionFactory ?? throw new ArgumentNullException(nameof(sessionFactory));
-        _options = options ?? ExecutionWorkerOptions.Default;
+        _options = (options ?? ExecutionWorkerOptions.Default).Snapshot();
         _options.Validate();
         _channel = Channel.CreateUnbounded<IExecutionWorkItem<TSession>>(
             new UnboundedChannelOptions
@@ -86,6 +86,8 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
 
     /// <inheritdoc />
     public string? Name => _options.Name;
+
+    internal bool IsCurrentThread => ReferenceEquals(_workerThread, Thread.CurrentThread);
 
     /// <inheritdoc />
     public ExecutionWorkerSnapshot GetSnapshot()
@@ -162,32 +164,29 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
             return Task.FromCanceled<TResult>(cancellationToken);
         }
 
-        ThrowIfDisposed();
-        EnsureInitialized();
-        ThrowIfFaulted();
-
         var effectiveOptions = options ?? ExecutionRequestOptions.Default;
+        _ = EnsureStartedLockedAsync();
         var workItem = new ExecutionWorkItem<TResult>(action, effectiveOptions, cancellationToken);
-        if (!_channel.Writer.TryWrite(workItem))
-        {
-            return Task.FromException<TResult>(new ObjectDisposedException(TypeName));
-        }
-
-        Interlocked.Increment(ref _queueDepth);
+        Submit(workItem);
         return workItem.Task;
     }
 
     /// <summary>
-    /// Zero-allocation hot-path equivalent of
+    /// Pooled ValueTask equivalent of
     /// <see cref="ExecuteAsync(Action{TSession, CancellationToken}, ExecutionRequestOptions?, CancellationToken)"/>
     /// backed by a pooled <see cref="System.Threading.Tasks.Sources.IValueTaskSource"/>.
     /// </summary>
     /// <param name="action">Callback invoked with the session and the effective cancellation token.</param>
     /// <param name="options">Optional per-call tuning.</param>
     /// <param name="cancellationToken">Token observed during enqueue and during execution.</param>
-    /// <returns>A <see cref="ValueTask"/> that completes when <paramref name="action"/> finishes.</returns>
+    /// <returns>
+    /// A <see cref="ValueTask"/> that completes after execution and the worker's
+    /// lifecycle policy, including any required session recycling or teardown.
+    /// </returns>
     /// <exception cref="ArgumentNullException"><paramref name="action"/> is <see langword="null"/>.</exception>
     /// <remarks>
+    /// Pooling avoids per-request source/Task allocations when a work item is reused;
+    /// it does not guarantee allocation-free execution.
     /// The returned <see cref="ValueTask"/> MUST be observed (awaited or
     /// <c>AsTask()</c>'d) exactly once, as required by the framework spec —
     /// the underlying source is recycled on first observation.
@@ -211,26 +210,16 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
             return new ValueTask(Task.FromCanceled(cancellationToken));
         }
 
-        ThrowIfDisposed();
-        EnsureInitialized();
-        ThrowIfFaulted();
-
         var effectiveOptions = options ?? ExecutionRequestOptions.Default;
+        _ = EnsureStartedLockedAsync();
         var workItem = PooledVoidExecutionWorkItem<TSession>.Rent(action, effectiveOptions, cancellationToken);
-        if (!_channel.Writer.TryWrite(workItem))
-        {
-            // Rent consumed a pooled instance; release it back to the pool via
-            // the explicit TrySet/GetResult cycle so we do not leak a slot.
-            workItem.TrySetException(new ObjectDisposedException(TypeName));
-            return new ValueTask(workItem, workItem.Version);
-        }
-
-        Interlocked.Increment(ref _queueDepth);
-        return new ValueTask(workItem, workItem.Version);
+        var result = new ValueTask(workItem, workItem.Version);
+        Submit(workItem);
+        return result;
     }
 
     /// <summary>
-    /// Zero-allocation hot-path equivalent of
+    /// Pooled ValueTask equivalent of
     /// <see cref="ExecuteAsync{TResult}(Func{TSession, CancellationToken, TResult}, ExecutionRequestOptions?, CancellationToken)"/>
     /// backed by a pooled <see cref="System.Threading.Tasks.Sources.IValueTaskSource{TResult}"/>.
     /// </summary>
@@ -238,9 +227,15 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
     /// <param name="action">Callback invoked with the session and the effective cancellation token.</param>
     /// <param name="options">Optional per-call tuning.</param>
     /// <param name="cancellationToken">Token observed during enqueue and during execution.</param>
-    /// <returns>A <see cref="ValueTask{TResult}"/> producing the delegate result.</returns>
+    /// <returns>
+    /// A <see cref="ValueTask{TResult}"/> that produces the delegate result on success
+    /// and completes after execution and the worker's lifecycle policy, including
+    /// any required session recycling or teardown.
+    /// </returns>
     /// <exception cref="ArgumentNullException"><paramref name="action"/> is <see langword="null"/>.</exception>
     /// <remarks>
+    /// Pooling avoids per-request source/Task allocations when a work item is reused;
+    /// it does not guarantee allocation-free execution.
     /// The returned <see cref="ValueTask{TResult}"/> MUST be observed exactly
     /// once, as required by the framework spec — the underlying source is
     /// recycled on first observation.
@@ -264,86 +259,25 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
             return new ValueTask<TResult>(Task.FromCanceled<TResult>(cancellationToken));
         }
 
-        ThrowIfDisposed();
-        EnsureInitialized();
-        ThrowIfFaulted();
-
         var effectiveOptions = options ?? ExecutionRequestOptions.Default;
+        _ = EnsureStartedLockedAsync();
         var workItem = PooledValueExecutionWorkItem<TSession, TResult>.Rent(action, effectiveOptions, cancellationToken);
-        if (!_channel.Writer.TryWrite(workItem))
-        {
-            workItem.TrySetException(new ObjectDisposedException(TypeName));
-            return new ValueTask<TResult>(workItem, workItem.Version);
-        }
-
-        Interlocked.Increment(ref _queueDepth);
-        return new ValueTask<TResult>(workItem, workItem.Version);
+        var result = new ValueTask<TResult>(workItem, workItem.Version);
+        Submit(workItem);
+        return result;
     }
 
     /// <summary>
-    /// Asynchronously completes the work queue, cancels pending items, disposes
+    /// Asynchronously completes the queue using the configured shutdown mode, disposes
     /// the session on the worker thread, and waits for the worker thread exit.
-    /// Idempotent.
+    /// Every external caller awaits the same exit. A call from the worker only
+    /// requests shutdown, since awaiting its own exit would deadlock.
     /// </summary>
     /// <returns>A <see cref="ValueTask"/> that completes when the worker thread exits.</returns>
     public ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposeState, 1) != 0)
-        {
-            return default;
-        }
-
-        _diagnostics.UnregisterWorker(_diagnosticsRegistration);
-
-        _channel.Writer.TryComplete();
-
-        // VSTHRD103 / MA0042 disabled: Cancel() is the correct primitive here —
-        // DisposeAsync is a non-async method returning ValueTask, and cancellation is
-        // a fire-and-forget signal to the worker thread. CancelAsync would only change
-        // where registered callbacks execute; the cancellation effect is synchronous either way.
-#pragma warning disable VSTHRD103, MA0042
-        try
-        {
-            _workerCancellationTokenSource.Cancel();
-        }
-        catch (ObjectDisposedException exception)
-        {
-            GC.KeepAlive(exception);
-        }
-#pragma warning restore VSTHRD103, MA0042
-
-        Thread? workerThread;
-        lock (_syncRoot)
-        {
-            workerThread = _workerThread;
-        }
-
-        if (workerThread is null)
-        {
-            _workerCancellationTokenSource.Dispose();
-            return default;
-        }
-
-        if (ReferenceEquals(workerThread, Thread.CurrentThread))
-        {
-            // Reentrant dispose from inside the worker's own delegate: we cannot await
-            // our own thread exit without deadlocking. The worker will still run its
-            // finally block (which disposes the session and the CTS) once the current
-            // delegate unwinds, because the channel is now completed and the CTS is
-            // cancelled. Callers awaiting DisposeAsync from elsewhere will see the
-            // exit TCS signal when that happens.
-            return default;
-        }
-
-        // Safe to return a task produced outside this method (VSTHRD003 disabled):
-        // _workerExitCompletionSource is the worker's own exit TaskCompletionSource,
-        // signaled exclusively by ExecutionWorker.Process on the dedicated worker
-        // Thread. Awaiting it from DisposeAsync is the designed contract for the
-        // IAsyncDisposable surface. The TCS is built with RunContinuationsAsynchronously
-        // so continuations do not inline back onto the worker thread.
-#pragma warning disable VSTHRD003
-        return new ValueTask(_workerExitCompletionSource.Task);
-#pragma warning restore VSTHRD003
+        var exit = RequestStopAsync();
+        return IsCurrentThread ? default : new ValueTask(exit);
     }
 
     /// <summary>
@@ -372,11 +306,8 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
         bool completed;
         try
         {
-            // MA0040 suppressed: passing _workerCancellationTokenSource.Token to Wait
-            // would make the wait throw OperationCanceledException as soon as dispose's
-            // own cancellation signal fires (which we triggered above on line 304),
-            // defeating the timeout-bounded sync-over-async pattern.
-            completed = disposeTask.Wait(timeout);
+            // Stop cancellation must not cancel the wait for actual thread exit.
+            completed = disposeTask.Wait((int)timeout.TotalMilliseconds, CancellationToken.None);
         }
         catch (AggregateException)
         {
@@ -402,6 +333,45 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
         return _channel.Writer.TryComplete(exception);
     }
 
+    internal Task RequestStopAsync()
+    {
+        var cancelStartup = false;
+        lock (_syncRoot)
+        {
+            if (Interlocked.Exchange(ref _disposeState, 1) == 0)
+            {
+                _channel.Writer.TryComplete();
+                if (_workerThread is null)
+                {
+                    _diagnostics.UnregisterWorker(_diagnosticsRegistration);
+                    _workerCancellationTokenSource.Dispose();
+                    _workerExitCompletionSource.TrySetResult(null);
+                }
+                else
+                {
+                    cancelStartup = true;
+                }
+            }
+        }
+
+        if (cancelStartup)
+        {
+            // Application callbacks must not block DisposeAsync before it returns
+            // its join task, nor run while a pool holds its disposal lock.
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+#pragma warning disable VSTHRD103, MA0042
+                ExecutionHelpers.TryIgnore(_workerCancellationTokenSource.Cancel);
+#pragma warning restore VSTHRD103, MA0042
+            });
+        }
+
+        // Completion belongs to this worker and runs continuations asynchronously.
+#pragma warning disable VSTHRD003
+        return _workerExitCompletionSource.Task;
+#pragma warning restore VSTHRD003
+    }
+
     internal void Process(object? state)
     {
         if (state is not TaskCompletionSource<object?> startupCompletionSource)
@@ -419,11 +389,12 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
         }
         catch (OperationCanceledException) when (_workerCancellationTokenSource.IsCancellationRequested)
         {
-            startupCompletionSource.TrySetResult(null);
+            startupCompletionSource.TrySetCanceled(_workerCancellationTokenSource.Token);
         }
         catch (Exception exception)
         {
             fatalException = exception;
+            SetFatalFailure(ExceptionDispatchInfo.Capture(exception));
             startupCompletionSource.TrySetException(exception);
         }
         finally
@@ -443,14 +414,15 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
                 SetFatalFailure(ExceptionDispatchInfo.Capture(fatalException));
             }
 
-            _channel.Writer.TryComplete(fatalException);
-            FailPendingItems(fatalException ?? new ObjectDisposedException(TypeName));
+            _channel.Writer.TryComplete(Fault);
+            FailPendingItems(Fault ?? new ObjectDisposedException(TypeName));
             _workerCancellationTokenSource.Dispose();
+            _diagnostics.UnregisterWorker(_diagnosticsRegistration);
 
             // Signal worker-thread exit to any awaiter of DisposeAsync. We always
             // complete with a successful result so DisposeAsync does not resurface
             // terminal session/create/dispose failures (those remain observable via
-            // ThrowIfFaulted / the upcoming IsFaulted / WorkerFaulted surface); this
+            // IsFaulted / Fault / WorkerFaulted surface); this
             // preserves the historical sync Dispose() contract of silently ignoring
             // session dispose failures.
             _workerExitCompletionSource.TrySetResult(null);
@@ -465,28 +437,24 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
             return;
         }
 
-#if NET8_0_OR_GREATER
-        throw fatalFailure.SourceException;
-#else
         fatalFailure.Throw();
-#endif
     }
 
     internal void SetFatalFailure(ExceptionDispatchInfo fatalFailure)
     {
-        // Dispatch the WorkerFaulted event BEFORE exposing the fault through
-        // the _fatalFailure field. This establishes a happens-before chain so
-        // any external observer that sees IsFaulted == true has also seen the
-        // event handlers run — closing the race where a test (or a dashboard)
-        // could poll IsFaulted, find it true, and assert on subscriber state
-        // that the worker thread had not yet notified. Handlers receive the
-        // exception through WorkerFaultedEventArgs; they do not need
-        // IsFaulted / Fault inside their scope.
-        RaiseFaultedOnce(fatalFailure.SourceException);
+        lock (_syncRoot)
+        {
+            if (_fatalFailure is not null)
+            {
+                return;
+            }
 
-        // Volatile-semantics write (the field is declared volatile) publishes
-        // the fault after the event ordering barrier above.
-        _fatalFailure = fatalFailure;
+            _fatalFailure = fatalFailure;
+            _channel.Writer.TryComplete(fatalFailure.SourceException);
+        }
+
+        // Never run application fault handlers on the session-owning thread.
+        ThreadPool.QueueUserWorkItem(_ => RaiseFaultedOnce(fatalFailure.SourceException));
     }
 
     internal void SetWorkerThreadForTesting(Thread? workerThread)
@@ -556,12 +524,27 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
                     Name = CreateThreadName(),
                 };
 
-                ConfigureThread(thread);
-
-                _workerThread = thread;
                 _startupTask = startupCompletionSource.Task;
+                _ = _startupTask.ContinueWith(
+                    static failed => GC.KeepAlive(failed.Exception),
+                    CancellationToken.None,
+                    TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
                 _initialized = true;
-                thread.Start(startupCompletionSource);
+                try
+                {
+                    ConfigureThread(thread);
+                    _workerThread = thread;
+                    thread.Start(startupCompletionSource);
+                }
+                catch (Exception exception)
+                {
+                    _workerThread = null;
+                    SetFatalFailure(ExceptionDispatchInfo.Capture(exception));
+                    startupCompletionSource.TrySetException(exception);
+                    _workerExitCompletionSource.TrySetResult(null);
+                    _diagnostics.UnregisterWorker(_diagnosticsRegistration);
+                }
             }
 
             return _startupTask!;
@@ -576,83 +559,186 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
             {
                 Interlocked.Decrement(ref _queueDepth);
                 ProcessWorkItem(workItem);
+                if (IsFaulted)
+                {
+                    return;
+                }
             }
         }
     }
 
     private void ProcessWorkItem(IExecutionWorkItem<TSession> workItem)
     {
-        if (workItem.CancellationToken.IsCancellationRequested)
+        var activity = StartActivity(workItem.ParentContext);
+        var (failure, canceled) = ExecuteOnSession(workItem);
+        var outcome = failure is null ? ExecutionDiagnosticNames.OutcomeSuccess : ExecutionDiagnosticNames.OutcomeFaulted;
+        if (canceled)
         {
-            workItem.TrySetCanceled();
-            RecordOperationOutcome(ExecutionDiagnosticNames.OutcomeCancelled);
-            return;
+            outcome = ExecutionDiagnosticNames.OutcomeCancelled;
         }
 
-        var workerName = _options.Name;
-        var activity = _diagnostics.ActivitySource.StartActivity(
-            ExecutionDiagnosticNames.ActivityExecute,
-            ActivityKind.Internal);
-        activity?.SetTag(ExecutionDiagnosticNames.TagWorkerName, workerName);
+        RecordOperationOutcome(outcome);
+        try
+        {
+            activity?.SetStatus(failure is null ? ActivityStatusCode.Ok : ActivityStatusCode.Error);
+            activity?.Dispose();
+        }
+        catch (Exception exception)
+        {
+            GC.KeepAlive(exception);
+        }
+
+        // Publication is the final access: a ValueTask consumer may recycle the
+        // item immediately, including from another worker sharing the same pool.
+        if (canceled)
+        {
+            workItem.TrySetCanceled();
+        }
+        else if (failure is not null)
+        {
+            workItem.TrySetException(failure);
+        }
+        else
+        {
+            workItem.TrySetResult();
+        }
+    }
+
+    private (Exception? Failure, bool Canceled) ExecuteOnSession(IExecutionWorkItem<TSession> workItem)
+    {
+        if (Volatile.Read(ref _disposeState) != 0 && _options.ShutdownMode == ExecutionShutdownMode.CancelPending)
+        {
+            return (null, true);
+        }
+
+        TSession session;
+        try
+        {
+            workItem.CancellationToken.ThrowIfCancellationRequested();
+            session = EnsureSessionCreated(workItem.CancellationToken);
+        }
+        catch (OperationCanceledException) when (workItem.CancellationToken.IsCancellationRequested)
+        {
+            return (null, true);
+        }
+        catch (Exception exception)
+        {
+            SetFatalFailure(ExceptionDispatchInfo.Capture(exception));
+            return (exception, false);
+        }
+
+        Exception? failure = null;
+        try
+        {
+            workItem.Execute(session);
+        }
+        catch (OperationCanceledException) when (workItem.CancellationToken.IsCancellationRequested)
+        {
+            return (null, true);
+        }
+        catch (Exception exception)
+        {
+            failure = exception;
+        }
 
         try
         {
-            try
+            if (failure is null)
             {
-                var session = EnsureSessionCreated(workItem.CancellationToken);
-                workItem.Execute(session);
-                var operationsProcessed = Interlocked.Increment(ref _operationsProcessed);
-
-                if (_options.MaxOperationsPerSession > 0 &&
-                    operationsProcessed >= _options.MaxOperationsPerSession)
+                var operations = Interlocked.Increment(ref _operationsProcessed);
+                if (_options.MaxOperationsPerSession > 0 && operations >= _options.MaxOperationsPerSession)
                 {
                     DisposeSession();
                     RecordSessionRecycle(ExecutionDiagnosticNames.RecycleMaxOperations);
                 }
-
-                activity?.SetStatus(ActivityStatusCode.Ok);
-                RecordOperationOutcome(ExecutionDiagnosticNames.OutcomeSuccess);
             }
-            catch (OperationCanceledException) when (workItem.CancellationToken.IsCancellationRequested)
+            else if (workItem.Options.RecycleSessionOnFailure)
             {
-                workItem.TrySetCanceled();
-                activity?.SetStatus(ActivityStatusCode.Ok);
-                RecordOperationOutcome(ExecutionDiagnosticNames.OutcomeCancelled);
-            }
-            catch (Exception exception)
-            {
-                workItem.TrySetException(exception);
-                activity?.SetStatus(ActivityStatusCode.Error, exception.Message);
-
-                if (workItem.Options.RecycleSessionOnFailure)
-                {
-                    DisposeSession();
-                    RecordSessionRecycle(ExecutionDiagnosticNames.RecycleFailure);
-                }
-
-                RecordOperationOutcome(ExecutionDiagnosticNames.OutcomeFaulted);
+                DisposeSession();
+                RecordSessionRecycle(ExecutionDiagnosticNames.RecycleFailure);
             }
         }
-        finally
+        catch (Exception exception)
         {
-            activity?.Dispose();
+            SetFatalFailure(ExceptionDispatchInfo.Capture(exception));
+            failure ??= exception;
+        }
+
+        return (failure, false);
+    }
+
+    private Activity? StartActivity(ActivityContext parentContext)
+    {
+        try
+        {
+            // Do not inherit Thread.Start's caller or a previous activity whose
+            // listener threw while stopping. Each request carries its own parent.
+            Activity.Current = null;
+            var activity = _diagnostics.ActivitySource.StartActivity(
+                ExecutionDiagnosticNames.ActivityExecute, ActivityKind.Internal, parentContext);
+            activity?.SetTag(ExecutionDiagnosticNames.TagWorkerName, _options.Name);
+            return activity;
+        }
+        catch (Exception exception)
+        {
+            GC.KeepAlive(exception);
+            return null;
         }
     }
 
     private void RecordOperationOutcome(string outcome)
     {
-        _diagnostics.OperationsCounter.Add(
-            1,
-            new KeyValuePair<string, object?>(ExecutionDiagnosticNames.TagWorkerName, _options.Name),
-            new KeyValuePair<string, object?>(ExecutionDiagnosticNames.TagOutcome, outcome));
+        try
+        {
+            _diagnostics.OperationsCounter.Add(
+                1,
+                new KeyValuePair<string, object?>(ExecutionDiagnosticNames.TagWorkerName, _options.Name),
+                new KeyValuePair<string, object?>(ExecutionDiagnosticNames.TagOutcome, outcome));
+        }
+        catch (Exception exception)
+        {
+            GC.KeepAlive(exception);
+        }
     }
 
     private void RecordSessionRecycle(string reason)
     {
-        _diagnostics.SessionRecyclesCounter.Add(
-            1,
-            new KeyValuePair<string, object?>(ExecutionDiagnosticNames.TagWorkerName, _options.Name),
-            new KeyValuePair<string, object?>(ExecutionDiagnosticNames.TagRecycleReason, reason));
+        try
+        {
+            _diagnostics.SessionRecyclesCounter.Add(
+                1,
+                new KeyValuePair<string, object?>(ExecutionDiagnosticNames.TagWorkerName, _options.Name),
+                new KeyValuePair<string, object?>(ExecutionDiagnosticNames.TagRecycleReason, reason));
+        }
+        catch (Exception exception)
+        {
+            GC.KeepAlive(exception);
+        }
+    }
+
+    private void Submit(IExecutionWorkItem<TSession> workItem)
+    {
+        var admitted = Interlocked.Increment(ref _queueDepth);
+        if (_options.QueueCapacity > 0 && admitted > _options.QueueCapacity)
+        {
+            Interlocked.Decrement(ref _queueDepth);
+            workItem.TrySetException(new InvalidOperationException("The worker admission capacity is exhausted."));
+            return;
+        }
+
+        // Queue during startup too: independent async continuations would reorder
+        // submissions and could outlive the worker's disposal completion.
+        Enqueue(workItem);
+    }
+
+    private void Enqueue(IExecutionWorkItem<TSession> workItem)
+    {
+        // Submit reserves queue depth before publication, including startup waiters.
+        if (!_channel.Writer.TryWrite(workItem))
+        {
+            Interlocked.Decrement(ref _queueDepth);
+            workItem.TrySetException(Fault ?? new ObjectDisposedException(TypeName));
+        }
     }
 
     private TSession EnsureSessionCreated(CancellationToken cancellationToken)
@@ -679,10 +765,10 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
         // Safe to block here (VSTHRD002 disabled): this code runs exclusively on the dedicated worker
         // Thread (see Process / EnsureStartedLocked), where synchronous blocking is the intended
         // execution model. The worker thread has no captured SynchronizationContext, so bridging the
-        // async Channel reader into a synchronous processing loop cannot deadlock. Cancellation is
-        // honored via _workerCancellationTokenSource which Dispose() signals on shutdown.
+        // async Channel reader into a synchronous processing loop cannot deadlock.
+        // Completing the writer wakes idle readers without abandoning admitted work.
 #pragma warning disable VSTHRD002
-        return _channel.Reader.WaitToReadAsync(_workerCancellationTokenSource.Token)
+        return _channel.Reader.WaitToReadAsync(CancellationToken.None)
             .AsTask()
             .GetAwaiter()
             .GetResult();
@@ -714,9 +800,11 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
     private string CreateThreadName()
     {
         var name = _options.Name;
+#pragma warning disable S8969
         return string.IsNullOrWhiteSpace(name)
             ? $"{typeof(TSession).Name} Execution Worker"
             : name!;
+#pragma warning restore S8969
     }
 
     private void FailPendingItems(Exception exception)
@@ -769,16 +857,24 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
         private readonly TaskCompletionSource<TResult> _completionSource = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
+        private TResult? _result;
+
         public CancellationToken CancellationToken { get; } = cancellationToken;
 
         public ExecutionRequestOptions Options { get; } = options;
+
+        public ActivityContext ParentContext { get; } = Activity.Current?.Context ?? default;
 
         public Task<TResult> Task => _completionSource.Task;
 
         public void Execute(TSession session)
         {
-            var result = _action(session, CancellationToken);
-            _completionSource.TrySetResult(result);
+            _result = _action(session, CancellationToken);
+        }
+
+        public void TrySetResult()
+        {
+            _completionSource.TrySetResult(_result!);
         }
 
         public void TrySetException(Exception exception)

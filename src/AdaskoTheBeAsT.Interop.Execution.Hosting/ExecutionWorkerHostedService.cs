@@ -29,19 +29,17 @@ public sealed class ExecutionWorkerHostedService<TSession>(IExecutionWorker<TSes
     }
 
     /// <summary>Stops the underlying worker by awaiting <c>DisposeAsync</c>.</summary>
-    /// <param name="cancellationToken">Currently unused; shutdown always waits for full drain.</param>
+    /// <param name="cancellationToken">Bounds the wait, not the lifetime of native cleanup.</param>
     /// <returns>A task that completes once the worker thread exits.</returns>
-    public async Task StopAsync(CancellationToken cancellationToken)
+    public Task StopAsync(CancellationToken cancellationToken)
     {
-        _ = cancellationToken;
-
         // IDISP007 disabled: this hosted service intentionally drives graceful
         // shutdown of the injected worker from StopAsync so the dedicated worker
         // Thread drains before the host completes. The DI container will also
-        // dispose the singleton at container teardown; DisposeAsync is idempotent
-        // (guarded by Interlocked.Exchange) so the second call is a no-op.
+        // dispose the singleton at container teardown; subsequent external calls
+        // await the same underlying worker-exit task.
 #pragma warning disable IDISP007
-        await _worker.DisposeAsync().ConfigureAwait(false);
+        return ShutdownWait.WaitAsync(_worker.DisposeAsync().AsTask(), cancellationToken);
 #pragma warning restore IDISP007
     }
 }

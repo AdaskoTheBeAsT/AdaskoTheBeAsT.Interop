@@ -20,9 +20,9 @@
       "command": "dotnet",
       "args": [
         "test",
+        "--solution",
         "AdaskoTheBeAsT.Interop.slnx",
         "--no-build",
-        "--nologo",
         "--verbosity",
         "minimal"
       ]

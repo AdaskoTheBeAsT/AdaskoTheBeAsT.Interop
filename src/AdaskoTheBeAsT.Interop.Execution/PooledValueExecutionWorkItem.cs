@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Threading.Tasks.Sources;
 
 namespace AdaskoTheBeAsT.Interop.Execution;
@@ -41,6 +42,9 @@ internal sealed class PooledValueExecutionWorkItem<TSession, TResult>
     private Func<TSession, CancellationToken, TResult>? _action;
     private ExecutionRequestOptions _options = ExecutionRequestOptions.Default;
     private CancellationToken _cancellationToken;
+    private TResult? _result;
+    private int _completed;
+    private bool _canceled;
 
     private PooledValueExecutionWorkItem()
     {
@@ -49,6 +53,8 @@ internal sealed class PooledValueExecutionWorkItem<TSession, TResult>
     public CancellationToken CancellationToken => _cancellationToken;
 
     public ExecutionRequestOptions Options => _options;
+
+    public ActivityContext ParentContext { get; private set; }
 
     public short Version => _core.Version;
 
@@ -69,43 +75,43 @@ internal sealed class PooledValueExecutionWorkItem<TSession, TResult>
         item._action = action;
         item._options = options;
         item._cancellationToken = cancellationToken;
+        item.ParentContext = Activity.Current?.Context ?? default;
+        item._completed = 0;
+        item._canceled = false;
         return item;
     }
 
     public void Execute(TSession session)
     {
-        var action = _action;
-        if (action is null)
-        {
-            // Defensive: Rent always sets _action; a null here would indicate
-            // double-execution which would corrupt the MRVTSC state machine.
-            _core.SetException(new InvalidOperationException("Work item action is unavailable."));
-            return;
-        }
+        var action = _action ?? throw new InvalidOperationException("Work item action is unavailable.");
 
-        try
+        // The worker publishes completion only after all session/telemetry work.
+        _result = action(session, _cancellationToken);
+    }
+
+    public void TrySetResult()
+    {
+        if (Interlocked.Exchange(ref _completed, 1) == 0)
         {
-            var result = action(session, _cancellationToken);
-            _core.SetResult(result);
-        }
-        catch (OperationCanceledException exception) when (_cancellationToken.IsCancellationRequested)
-        {
-            _core.SetException(exception);
-        }
-        catch (Exception exception)
-        {
-            _core.SetException(exception);
+            _core.SetResult(_result!);
         }
     }
 
     public void TrySetException(Exception exception)
     {
-        _core.SetException(exception);
+        if (Interlocked.Exchange(ref _completed, 1) == 0)
+        {
+            _core.SetException(exception);
+        }
     }
 
     public void TrySetCanceled()
     {
-        _core.SetException(new OperationCanceledException(_cancellationToken));
+        if (Interlocked.Exchange(ref _completed, 1) == 0)
+        {
+            _canceled = true;
+            _core.SetException(new OperationCanceledException(_cancellationToken));
+        }
     }
 
     public TResult GetResult(short token)
@@ -114,7 +120,7 @@ internal sealed class PooledValueExecutionWorkItem<TSession, TResult>
         // version, the caller is awaiting a recycled instance. Delegate to
         // MRVTSC (which will throw InvalidOperationException by spec) without
         // recycling the item — another caller still owns it.
-        if (token != _core.Version)
+        if (token != _core.Version || _core.GetStatus(token) == ValueTaskSourceStatus.Pending)
         {
             return _core.GetResult(token);
         }
@@ -129,7 +135,11 @@ internal sealed class PooledValueExecutionWorkItem<TSession, TResult>
         }
     }
 
-    public ValueTaskSourceStatus GetStatus(short token) => _core.GetStatus(token);
+    public ValueTaskSourceStatus GetStatus(short token)
+    {
+        var status = _core.GetStatus(token);
+        return status == ValueTaskSourceStatus.Canceled && !_canceled ? ValueTaskSourceStatus.Faulted : status;
+    }
 
     public void OnCompleted(
         Action<object?> continuation,
@@ -142,7 +152,7 @@ internal sealed class PooledValueExecutionWorkItem<TSession, TResult>
 
     void IValueTaskSource.GetResult(short token)
     {
-        if (token != _core.Version)
+        if (token != _core.Version || _core.GetStatus(token) == ValueTaskSourceStatus.Pending)
         {
             _core.GetResult(token);
             return;
@@ -158,7 +168,7 @@ internal sealed class PooledValueExecutionWorkItem<TSession, TResult>
         }
     }
 
-    ValueTaskSourceStatus IValueTaskSource.GetStatus(short token) => _core.GetStatus(token);
+    ValueTaskSourceStatus IValueTaskSource.GetStatus(short token) => GetStatus(token);
 
     void IValueTaskSource.OnCompleted(
         Action<object?> continuation,
@@ -174,6 +184,8 @@ internal sealed class PooledValueExecutionWorkItem<TSession, TResult>
         _action = null;
         _options = ExecutionRequestOptions.Default;
         _cancellationToken = default;
+        _result = default;
+        ParentContext = default;
         _core.Reset();
 
         if (Interlocked.Increment(ref _pooledCount) > MaxPoolSize)

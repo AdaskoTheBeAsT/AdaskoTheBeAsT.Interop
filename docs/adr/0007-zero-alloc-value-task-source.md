@@ -1,6 +1,6 @@
 # ADR-0007 — Zero-allocation `ExecuteValueAsync` via pooled `IValueTaskSource<T>`
 
-- **Status**: Accepted (supersedes [ADR-0004](0004-valuetask-hotpath-overloads.md))
+- **Status**: Superseded by [ADR-0010](0010-worker-completion-and-lifecycle.md) (originally superseded [ADR-0004](0004-valuetask-hotpath-overloads.md))
 - **Date**: 2026-04-19
 - **Related**: [`0004-valuetask-hotpath-overloads.md`](0004-valuetask-hotpath-overloads.md), `improve.md` ("`ExecuteValueAsync` is a convenience wrapper — it does not yet avoid the inner `Task` allocation")
 

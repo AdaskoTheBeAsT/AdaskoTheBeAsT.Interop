@@ -6,7 +6,7 @@
 [![NuGet](https://img.shields.io/nuget/v/AdaskoTheBeAsT.Interop.Execution.DependencyInjection.svg?label=Execution.DependencyInjection&logo=nuget)](https://www.nuget.org/packages/AdaskoTheBeAsT.Interop.Execution.DependencyInjection/)
 [![NuGet](https://img.shields.io/nuget/v/AdaskoTheBeAsT.Interop.Execution.Hosting.svg?label=Execution.Hosting&logo=nuget)](https://www.nuget.org/packages/AdaskoTheBeAsT.Interop.Execution.Hosting/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
-![TFMs](https://img.shields.io/badge/TFMs-net10.0%20%7C%20net9.0%20%7C%20net8.0%20%7C%20net4.6.2%E2%80%93net4.8.1-512BD4?logo=dotnet)
+![TFMs](https://img.shields.io/badge/TFMs-net10.0%20%7C%20net9.0%20%7C%20net8.0%20%7C%20net4.7.2%E2%80%93net4.8.1-512BD4?logo=dotnet)
 ![Warnings](https://img.shields.io/badge/warnings--as--errors-on-green)
 ![Deterministic](https://img.shields.io/badge/deterministic%20build-on-blue)
 
@@ -41,16 +41,53 @@ And now it is. ✨
 
 ---
 
+## Why upgrade to 2.0.0?
+
+**2.0.0 makes worker execution and shutdown more reliable and raises the minimum
+.NET Framework version to 4.7.2.** It is currently unreleased. Dropping
+`net462`, `net47`, and `net471` is a breaking change and the reason for the major
+version. Existing integration APIs remain available on supported targets.
+The comparison below is against the tagged **1.0.0** release.
+
+| If your application... | What could go wrong in 1.0.0 | What 2.0.0 improves |
+| --- | --- | --- |
+| Uses `ExecuteValueAsync` under load | A caller could return a pooled source while the worker still used it; delegate failures bypassed worker recovery. | Completion is the worker's last access to the item. Task and ValueTask requests share failure, cancellation, recycling, and outcome reporting. |
+| Recycles native sessions | A request could report success before required teardown finished. | Awaiting the request includes recycle teardown. Cleanup failures become observable instead of looking like successful work. |
+| Submits work before initialization finishes | An async submission could block its calling thread on session creation. | Submissions enqueue without waiting for creation and retain per-worker FIFO order. Startup failures settle the returned requests. |
+| Shuts down from several places | A repeated or reentrant disposal could make an external caller think teardown was already complete. | Every external `DisposeAsync()` joins actual teardown, even after a synchronous disposal timeout. |
+| Receives bursts of work | Admission was unbounded. | Opt into `QueueCapacity` to limit waiting requests and reject excess work explicitly, including during startup. |
+| Needs a shutdown policy | Pending-work handling was not an explicit choice. | Choose `Drain` or `CancelPending`. Hosted shutdown also observes the host's cancellation deadline without canceling cleanup. |
+| Relies on faults and tracing | Fault handlers ran on the owning thread before `Fault` was published; listener errors could disrupt execution. | Fault state is latched before off-thread notification. Listener exceptions are contained, and spans use the submitting request's activity context. |
+| Reuses options or custom pool schedulers | Later option mutations could alter live behavior; a scheduler could select a foreign concrete worker. | Workers snapshot configuration, pools reject non-members, and partial pool construction rolls back earlier workers. |
+
+**What is not new:** pooled `ExecuteValueAsync`, DI/Hosting,
+session recycling, schedulers, snapshots, and scoped diagnostics already shipped
+in 1.0.0. This is a correctness and lifecycle upgrade, not a claim of faster
+native execution or a new benchmark result.
+
+**Before upgrading:** applications targeting .NET Framework 4.6.2, 4.7, or 4.7.1
+must retarget to 4.7.2 or later, or remain on 1.0.0. Modern .NET 8, 9, and 10
+targets are unchanged.
+
+On supported targets, existing public signatures are retained. The new options
+default to unlimited admission (`QueueCapacity = 0`) and `Drain`; applications
+receive the fixes without opting into queue limits. Completion timing, event
+ordering, and option validation do change, so review the
+[1.0.x to 2.0.0 migration guide](docs/migration-2.0.0.md) before upgrading.
+See the [changelog](CHANGELOG.md) for release details.
+
+---
+
 ## ✨ Why you'll love this
 
-- ⚡ **Zero-allocation hot path.** `ExecuteValueAsync` is backed by pooled `IValueTaskSource<T>` on *every* TFM (yes, even `net462`). No `Task` wrapping on the hot path. ([ADR-0007](docs/adr/0007-zero-alloc-value-task-source.md))
-- 🧩 **Drop-in DI + Hosting.** `services.AddExecutionWorker<TSession>()` + `AddExecutionWorkerHostedService<TSession>()` and you're done.
+- **Pooled ValueTask path.** `ExecuteValueAsync` reuses `IValueTaskSource<T>` work items on every supported TFM, including `net472`, avoiding a per-request source/Task allocation when a pooled item is available. This is not a guarantee of zero total allocations. ([Completion contract](docs/adr/0010-worker-completion-and-lifecycle.md))
+- **DI + Hosting.** Use `AddExecutionWorker<TSession>()` for plain DI, or `AddExecutionWorkerHostedService<TSession>()` to register both the worker and its hosted lifecycle.
 - 💫 **Pluggable schedulers.** `LeastQueued` and `RoundRobin` ship in the box; bring your own via `IWorkerScheduler<TSession>`. ([ADR-0002](docs/adr/0002-pluggable-worker-scheduler.md))
 - 🔭 **Batteries-included observability.** `ActivitySource` + `Meter` with public constant names, ready for OpenTelemetry. ([ADR-0003](docs/adr/0003-public-diagnostic-constants.md))
 - 🪟 **First-class Windows STA.** Flip a boolean, get an STA worker thread on Windows; silently ignored elsewhere.
 - ♻️ **Real session recycling.** After N operations, after a failure, or both — your call.
 - 🛡️ **Terminal-once faulting.** When a worker goes bad, it says so *once*, loudly, via `WorkerFaulted` — no silent-dead-thread surprises.
-- 🖥️ **9 TFMs, all green.** `net10.0`, `net9.0`, `net8.0`, `net481`, `net48`, `net472`, `net471`, `net47`, `net462` — tested across the full matrix on every build.
+- **6 target frameworks.** `net10.0`, `net9.0`, `net8.0`, `net481`, `net48`, `net472`. .NET Framework 4.7.2 is the minimum for 2.0.0.
 - ✏️ **Source Link + snupkg.** Step into the library from your debugger without guessing.
 
 ---
@@ -85,11 +122,14 @@ Symbols ship as `.snupkg` with Source Link and embedded untracked sources. Step 
 | `net481` | ✅ | Windows desktop; `System.Threading.Channels` + `System.Diagnostics.DiagnosticSource` via NuGet + `IsExternalInit` polyfill. |
 | `net48` | ✅ | Same as above. |
 | `net472` | ✅ | Same as above. |
-| `net471` | ✅ | Same as above. |
-| `net47` | ✅ | Same as above. |
-| `net462` | ✅ | Same as above. |
 
-Every cell is built with `TreatWarningsAsErrors=true`, `ContinuousIntegrationBuild=true`, `Deterministic=true`, and exercised in CI.
+This six-target matrix applies to all three packages in 2.0.0.
+**Removed:** `net462` (.NET Framework 4.6.2), `net47` (4.7), and `net471` (4.7.1).
+Retarget affected projects and deployment environments to .NET Framework 4.7.2
+or later before installing 2.0.0; see the [migration guide](docs/migration-2.0.0.md).
+
+CI enables `TreatWarningsAsErrors=true`, `ContinuousIntegrationBuild=true`, and
+`Deterministic=true`. All four test projects target this same matrix.
 
 ---
 
@@ -144,7 +184,7 @@ Owns 👇
 - a multi-writer / single-reader `Channel` of work items
 - one dedicated background `Thread` (optionally STA on Windows)
 - startup / shutdown lifecycle (`InitializeAsync(CancellationToken)` + sync `Initialize`)
-- cooperative cancellation of pending items on shutdown
+- configurable draining or cancellation of pending items on shutdown
 - session reuse + session recycle after failure or after N operations
 - observability via `Name`, `IsFaulted`, `Fault`, `QueueDepth`, `WorkerFaulted`, and the uniform `GetSnapshot()`
 
@@ -157,9 +197,9 @@ Owns 👇
 - multiple `ExecutionWorker<TSession>` instances
 - pluggable work distribution (see [Scheduling](#-scheduling) below)
 - one session per worker (ideal for isolated native DLL sets)
-- per-worker isolation for native state
+- separate worker-owned sessions (process-global native state still needs adapter-level isolation)
 - parallel initialization and parallel disposal
-- aggregate observability (`QueueDepth`, `IsAnyFaulted`, `WorkerFaults`, `Workers`, forwarded `WorkerFaulted`, uniform `GetSnapshot()`)
+- aggregate observability (`QueueDepth`, `IsAnyFaulted`, `WorkerFaults`, forwarded `WorkerFaulted`, and per-worker snapshots via `GetSnapshot().Workers`)
 
 ### 🏭 `IExecutionSessionFactory<TSession>`
 
@@ -178,9 +218,16 @@ Creates the thread-affine session (loading native libs, initialising modules) an
 
 `Name`, `UseStaThread`, `MaxOperationsPerSession` (`0` = unlimited), `DisposeTimeout` (default `Timeout.InfiniteTimeSpan`), `Diagnostics` (scoped `ExecutionDiagnostics` instance — defaults to a process-wide `Shared` singleton). Parameterless ctor + positional ctor + public setters so it binds cleanly via `IOptions<T>`.
 
+`QueueCapacity` limits requests waiting for startup or execution (`0` = unlimited).
+`ShutdownMode` selects `Drain` (default) or `CancelPending`. Options are validated
+and copied when the worker is constructed; later mutations do not reconfigure it.
+
 ### 🎛️ `ExecutionWorkerPoolOptions`
 
 `WorkerCount`, `Name`, `UseStaThread`, `MaxOperationsPerSession`, `DisposeTimeout`, `SchedulingStrategy` (default `LeastQueued`), `Diagnostics`. Same binding story.
+
+`QueueCapacity` and `ShutdownMode` apply to each worker. Pool options are also
+copied at construction. Capacity is per worker, not a shared pool-wide limit.
 
 ### 🎛️ `ExecutionRequestOptions`
 
@@ -197,31 +244,56 @@ If `UseStaThread: true` is set:
 
 That makes the option safe for cross-platform callers that want "STA when possible" behaviour.
 
+The worker does **not** run a COM or UI message pump. STA alone is insufficient
+for components that require one. Separate worker sessions also do not isolate
+process-global native state; the adapter must supply any required process-wide
+serialization or process isolation.
+
+## Startup, admission, cancellation, and shutdown
+
+- Submit **synchronous** delegates only. An async lambda can escape the owning
+  thread and outlive its session. Do not synchronously wait for nested work on
+  the same worker.
+- Async submissions return without waiting for initial session creation. Work
+  is queued in FIFO order on each worker, including during startup.
+- `InitializeAsync(token)` cancels only that caller's wait. Shared startup
+  continues for other callers. Disposing the worker separately requests
+  cancellation of initial session creation.
+- A full `QueueCapacity` faults the submission with `InvalidOperationException`;
+  it does not block or silently drop work. The executing request is excluded
+  from the limit. A pool does not retry another worker after capacity rejection.
+- A request canceled before execution is skipped when dequeued. Once running,
+  its delegate must observe its own token. Neither request cancellation nor
+  shutdown forcibly interrupts managed or native code.
+- `Drain` completes queued work on an available session. `CancelPending` skips
+  requests not yet started. Both let running delegates finish before teardown.
+  If initial creation is canceled or fails, queued requests cannot run and are
+  completed with cancellation or failure.
+- Every external `DisposeAsync()` joins the same actual teardown. A call from
+  the owning worker only requests shutdown, avoiding a self-deadlock.
+  Synchronous `Dispose()` can abandon its wait at `DisposeTimeout`; cleanup
+  continues and a later `DisposeAsync()` still joins it.
+- Hosted `StopAsync(token)` uses the host deadline to bound its wait, not the
+  cleanup itself. If the token fires before teardown completes, awaiting
+  `StopAsync` throws `OperationCanceledException`. Container disposal may still
+  wait for a blocked native call.
+
+Hard deadlines and recovery from a hung native call require a separate process.
+See [ADR-0010](docs/adr/0010-worker-completion-and-lifecycle.md) for the ownership
+and compatibility decisions.
+
 ---
 
 ## 🚀 Quick example
 
+This complete console example uses top-level statements on modern .NET. The
+session is a stub; replace `Render` and the factory cleanup with your native API.
+
 ```csharp
+using System.Text;
 using AdaskoTheBeAsT.Interop.Execution;
 
-public sealed class NativeSession
-{
-    public byte[] Render(string html) => []; // call into your native lib here
-}
-
-public sealed class NativeSessionFactory : IExecutionSessionFactory<NativeSession>
-{
-    public NativeSession CreateSession(CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        return new NativeSession();
-    }
-
-    public void DisposeSession(NativeSession session)
-    {
-        // free native handles here
-    }
-}
+CancellationToken cancellationToken = CancellationToken.None;
 
 // 1. Spin up the worker.
 await using var worker = new ExecutionWorker<NativeSession>(
@@ -235,22 +307,66 @@ await worker.InitializeAsync(cancellationToken);
 
 // 2. Throw work at it. Returns when the work item completes.
 byte[] bytes = await worker.ExecuteAsync(
-    (session, ct) => session.Render("<h1>Hello</h1>"),
+    (session, ct) =>
+    {
+        ct.ThrowIfCancellationRequested();
+        return session.Render("<h1>Hello</h1>");
+    },
     new ExecutionRequestOptions(recycleSessionOnFailure: true),
     cancellationToken);
+
+Console.WriteLine($"Produced {bytes.Length} bytes.");
+
+public sealed class NativeSession
+{
+    public byte[] Render(string html) => Encoding.UTF8.GetBytes(html);
+}
+
+public sealed class NativeSessionFactory : IExecutionSessionFactory<NativeSession>
+{
+    public NativeSession CreateSession(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return new NativeSession();
+    }
+
+    public void DisposeSession(NativeSession session)
+    {
+        // Free native handles here, on the owning worker thread.
+    }
+}
 ```
 
-### ⚡ Zero-alloc `ValueTask` hot path
+### Pooled `ValueTask` hot path
 
-When the caller is already in `ValueTask` land (e.g. wrapping a native-interop async API) the **instance** `ExecuteValueAsync` overloads keep you in that domain with pooled `IValueTaskSource<T>` work items — **no inner `Task` allocation, on every TFM**:
+The concrete `ExecutionWorker<TSession>` and `ExecutionWorkerPool<TSession>`
+types expose instance `ExecuteValueAsync` overloads backed by pooled
+`IValueTaskSource<T>` work items on every supported TFM. Use the same synchronous
+delegate as with `ExecuteAsync`; only the returned completion type changes.
+The `IExecutionWorker<TSession>` and `IExecutionWorkerPool<TSession>` interfaces
+expose `ExecuteAsync`, not `ExecuteValueAsync`. Keep using `ExecuteAsync` when
+consuming those interfaces through DI.
 
 ```csharp
-int sessionId = await worker.ExecuteValueAsync(
-    (session, _) => session.SessionId,
+byte[] bytes = await worker.ExecuteValueAsync(
+    (session, ct) =>
+    {
+        ct.ThrowIfCancellationRequested();
+        return session.Render("<h1>Hello</h1>");
+    },
     cancellationToken: cancellationToken);
 ```
 
-See [ADR-0007](docs/adr/0007-zero-alloc-value-task-source.md) for the gritty details; [ADR-0004](docs/adr/0004-valuetask-hotpath-overloads.md) is kept as historical context.
+Await each returned ValueTask exactly once. If you need to share or repeatedly
+await a result, use `ExecuteAsync`, or call `AsTask()` once and retain that Task.
+Do not discard, double-await, or synchronously read an incomplete ValueTask.
+
+Pooling avoids per-request source/Task allocations when an item can be reused;
+startup, pool misses, delegates, channels, continuations, and tracing can still
+allocate. The pooling API already existed in 1.0.0. The 2.0.0 improvement is safe
+completion ownership and the same recovery behavior as the Task path.
+See [ADR-0010](docs/adr/0010-worker-completion-and-lifecycle.md), which supersedes
+the lifecycle design in [ADR-0007](docs/adr/0007-zero-alloc-value-task-source.md).
 
 ---
 
@@ -341,6 +457,13 @@ You can choose to recycle the session:
 
 Set `maxOperationsPerSession: 0` when you want unlimited session lifetime and only failure-based recycling.
 
+Task and ValueTask calls use the same failure and recycle policy. Completion
+is published only after any required session teardown. A teardown error after
+a successful delegate faults the request and worker. If the delegate also
+failed, its exception remains the request failure and `Fault` records the
+terminal teardown error. A canceled request does not count as a successful
+operation or trigger failure-based recycling.
+
 ---
 
 ## 🧩 DI integration
@@ -377,7 +500,12 @@ services.AddExecutionWorkerHostedService<NativeSession>(options =>
 });
 ```
 
-The `IHostedService` wrappers drive `InitializeAsync` on `StartAsync` and `DisposeAsync` on `StopAsync`, idempotent against double-stop. `AddExecutionWorkerPoolHostedService<TSession>` covers the pool.
+The registration includes the worker and its `IHostedService` wrapper; you do
+not need a separate `AddExecutionWorker<TSession>()` call. The wrapper drives
+`InitializeAsync` on `StartAsync` and joins `DisposeAsync` on `StopAsync`.
+In 2.0.0, a canceled stop token cancels only that wait, not worker cleanup.
+Repeated stops join the same teardown, subject to each caller's token.
+`AddExecutionWorkerPoolHostedService<TSession>` covers the pool.
 
 ---
 
@@ -404,7 +532,8 @@ builder.Services.AddOpenTelemetry()
     .WithMetrics(m => m.AddMeter(ExecutionDiagnosticNames.SourceName));
 ```
 
-When no listener is attached, `StartActivity` returns `null` and the instrumentation is allocation-free. ⚡
+When no activity listener is attached, `StartActivity` returns `null` and no
+execution span is created. This does not guarantee allocation-free execution.
 
 See [ADR-0003](docs/adr/0003-public-diagnostic-constants.md) for why the identifiers are a public contract.
 
@@ -412,9 +541,47 @@ See [ADR-0003](docs/adr/0003-public-diagnostic-constants.md) for why the identif
 
 ## ⚠️ Faulting semantics
 
-`ExecutionWorker<TSession>` is **terminal-once**: when a work item throws a non-cancellation exception during startup or session creation — or when `DisposeSession` throws during shutdown — `_fatalFailure` latches, `IsFaulted` flips to `true`, and `WorkerFaulted` fires *exactly once*. Subsequent `ExecuteAsync` calls rethrow the original exception synchronously (unwrapped via `ExceptionDispatchInfo`). The worker cannot be re-initialised after faulting.
+`ExecutionWorker<TSession>` is **terminal-once**: a session creation or teardown
+failure latches `Fault` before `WorkerFaulted` is queued to the thread pool.
+Subscribers run off the owning thread; throwing subscribers are contained.
+Notification is asynchronous and may arrive after disposal completes. The first
+terminal exception wins, and the worker cannot be re-initialised.
+
+A delegate exception alone faults that request, optionally recycling its session.
+An `OperationCanceledException` is cancellation only when the request token was
+canceled; otherwise it is a failure for both Task and ValueTask calls. Future
+submissions rethrow a terminal fault synchronously unless disposal has already
+been requested, in which case they throw `ObjectDisposedException`.
+
+Disposal joins teardown without rethrowing terminal session errors. Inspect
+`Fault`, `IsFaulted`, or `WorkerFaulted` for those errors. Diagnostic-listener
+exceptions do not fail requests; execution spans use the submitting activity
+as their parent.
 
 Pool consumers observe the same contract aggregated: `IsAnyFaulted`, `WorkerFaults`, and a forwarded `WorkerFaulted` event carrying the originating worker name. 🔔
+
+---
+
+## 🔁 Migrating from 1.0.x
+
+Start with the [2.0.0 migration guide](docs/migration-2.0.0.md). It covers
+retargeting, package updates, before/after behavior, copyable option examples,
+and an upgrade checklist.
+
+- Retarget .NET Framework 4.6.2, 4.7, and 4.7.1 projects to 4.7.2 or later
+  before upgrading. If you cannot retarget, remain on 1.0.0.
+- On supported targets, keep your existing factory, worker/pool, and DI/Hosting
+  APIs. Public signatures are retained from tagged 1.0.0, but framework support
+  is not backward-compatible.
+- Review request completion, fault-event ordering, cancellation, and repeated
+  disposal. API compatibility does **not** mean identical runtime behavior.
+- Configure options before constructing or resolving a worker. They are now
+  snapshotted, and `DisposeTimeout` values above `int.MaxValue` milliseconds
+  are rejected during validation.
+- Opt into `QueueCapacity` or `CancelPending` only if your application needs
+  them. Handle rejection/cancellation explicitly.
+- Do not use a timeout as proof that a native call stopped. Only completed
+  external `DisposeAsync()` confirms teardown; inspect `Fault` separately.
 
 ---
 
@@ -432,7 +599,7 @@ dotnet test   .\AdaskoTheBeAsT.Interop.slnx --no-build
 | `test/unit/AdaskoTheBeAsT.Interop.Execution.Hosting.Test` | 🏗️ `IHostedService` start/stop lifecycle, idempotent shutdown. |
 | `test/integ/AdaskoTheBeAsT.Interop.Execution.IntegrationTest` | 🤝 Multi-threaded submission, STA on Windows, reentrant dispose, session recycling, zero-alloc `ValueTask`, snapshot surface, scoped diagnostics. |
 
-All four projects run across the full 9-target matrix.
+All four test projects target the same six-framework matrix as the packages.
 
 ---
 
@@ -445,6 +612,7 @@ Small, self-contained design decisions taken on this codebase live under [`docs/
 - ⚡ [ADR-0007 — zero-allocation `ExecuteValueAsync`](docs/adr/0007-zero-alloc-value-task-source.md)
 - 📸 [ADR-0008 — uniform snapshot surface](docs/adr/0008-uniform-snapshot-surface.md)
 - 🔭 [ADR-0009 — scoped `ExecutionDiagnostics`](docs/adr/0009-scoped-execution-diagnostics.md)
+- [ADR-0010: 2.0.0 completion ownership and lifecycle](docs/adr/0010-worker-completion-and-lifecycle.md)
 
 ---
 
@@ -465,6 +633,7 @@ Found a bug? Got an idea? Spotted a typo that's been haunting you? 👻
 - 📄 [`wkhtml.md`](./wkhtml.md) — WkHtml migration notes.
 - 📁 [`docs/adr/`](docs/adr/) — design rationale for every recent change.
 - 📝 [`CHANGELOG.md`](./CHANGELOG.md) — what landed when.
+- [1.0.x to 2.0.0 migration guide](docs/migration-2.0.0.md): retargeting, upgrade steps, and behavioral changes.
 
 ---
 

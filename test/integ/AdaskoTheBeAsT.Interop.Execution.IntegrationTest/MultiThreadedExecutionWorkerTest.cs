@@ -23,19 +23,21 @@ public sealed class MultiThreadedExecutionWorkerTest
         var submitterTasks = new Task[ConcurrentSubmitters];
         for (var submitterIndex = 0; submitterIndex < ConcurrentSubmitters; submitterIndex++)
         {
-            submitterTasks[submitterIndex] = Task.Run(async () =>
-            {
-                for (var submissionIndex = 0; submissionIndex < SubmissionsPerSubmitter; submissionIndex++)
+            submitterTasks[submitterIndex] = Task.Run(
+                async () =>
                 {
-                    await worker.ExecuteAsync(
-                        (session, _) =>
-                        {
-                            observedThreadIds.Add(Environment.CurrentManagedThreadId);
-                            observedSessionIds.Add(session.SessionId);
-                        },
-                        cancellationToken: TestCt.Current);
-                }
-            });
+                    for (var submissionIndex = 0; submissionIndex < SubmissionsPerSubmitter; submissionIndex++)
+                    {
+                        await worker.ExecuteAsync(
+                            (session, _) =>
+                            {
+                                observedThreadIds.Add(Environment.CurrentManagedThreadId);
+                                observedSessionIds.Add(session.SessionId);
+                            },
+                            cancellationToken: TestCt.Current);
+                    }
+                },
+                TestCt.Current);
         }
 
         await Task.WhenAll(submitterTasks);
@@ -77,21 +79,23 @@ public sealed class MultiThreadedExecutionWorkerTest
         var submitterTasks = new Task[SubmitterCount];
         for (var submitterIndex = 0; submitterIndex < SubmitterCount; submitterIndex++)
         {
-            submitterTasks[submitterIndex] = Task.Run(async () =>
-            {
-                for (var submissionIndex = 0; submissionIndex < SubmissionsPerSubmitter; submissionIndex++)
+            submitterTasks[submitterIndex] = Task.Run(
+                async () =>
                 {
-                    await pool.ExecuteAsync(
-                        (session, _) =>
-                        {
-                            perThreadCompletedCount.AddOrUpdate(
-                                session.OwnerThreadId,
-                                1,
-                                (_, currentCount) => currentCount + 1);
-                        },
-                        cancellationToken: TestCt.Current);
-                }
-            });
+                    for (var submissionIndex = 0; submissionIndex < SubmissionsPerSubmitter; submissionIndex++)
+                    {
+                        await pool.ExecuteAsync(
+                            (session, _) =>
+                            {
+                                perThreadCompletedCount.AddOrUpdate(
+                                    session.OwnerThreadId,
+                                    1,
+                                    (_, currentCount) => currentCount + 1);
+                            },
+                            cancellationToken: TestCt.Current);
+                    }
+                },
+                TestCt.Current);
         }
 
         await Task.WhenAll(submitterTasks);
@@ -123,16 +127,18 @@ public sealed class MultiThreadedExecutionWorkerTest
         for (var submitterIndex = 0; submitterIndex < SubmitterCount; submitterIndex++)
         {
             var capturedSubmitterIndex = submitterIndex;
-            submitterTasks[submitterIndex] = Task.Run(async () =>
-            {
-                for (var submissionIndex = 0; submissionIndex < SubmissionsPerSubmitter; submissionIndex++)
+            submitterTasks[submitterIndex] = Task.Run(
+                async () =>
                 {
-                    var capturedSubmissionIndex = submissionIndex;
-                    await worker.ExecuteAsync(
-                        (_, _) => perSubmitterSequences[capturedSubmitterIndex].Add(capturedSubmissionIndex),
-                        cancellationToken: TestCt.Current);
-                }
-            });
+                    for (var submissionIndex = 0; submissionIndex < SubmissionsPerSubmitter; submissionIndex++)
+                    {
+                        var capturedSubmissionIndex = submissionIndex;
+                        await worker.ExecuteAsync(
+                            (_, _) => perSubmitterSequences[capturedSubmitterIndex].Add(capturedSubmissionIndex),
+                            cancellationToken: TestCt.Current);
+                    }
+                },
+                TestCt.Current);
         }
 
         await Task.WhenAll(submitterTasks);

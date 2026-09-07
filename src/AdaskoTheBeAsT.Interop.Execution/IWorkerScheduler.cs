@@ -17,7 +17,8 @@ public interface IWorkerScheduler<TSession>
     /// <param name="workers">Stable snapshot of the pool's workers. The list
     /// order, length, and element identities are fixed for the lifetime of the
     /// pool.</param>
-    /// <returns>The selected worker. Implementations SHOULD skip
+    /// <returns>The selected worker, which must belong to <paramref name="workers"/>.
+    /// Implementations SHOULD skip
     /// <see cref="IExecutionWorker{TSession}.IsFaulted"/> workers when at least
     /// one healthy worker exists; if every worker is faulted, returning any of
     /// them is acceptable so the caller gets a deterministic exception from

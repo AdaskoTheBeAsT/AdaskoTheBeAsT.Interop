@@ -20,6 +20,49 @@ namespace AdaskoTheBeAsT.Interop.Execution.Test;
 public sealed class PooledExecutionWorkItemTest
 {
     [Fact]
+    public void PendingGenericResultMustNotRecycleTheSource()
+    {
+        var item = PooledValueExecutionWorkItem<TestSession, int>.Rent(
+            static (_, _) => 42, ExecutionRequestOptions.Default, CancellationToken.None);
+        var version = item.Version;
+        Action premature = () => item.GetResult(version);
+        premature.Should().Throw<InvalidOperationException>();
+        item.Version.Should().Be(version);
+        item.Execute(new TestSession(1, Environment.CurrentManagedThreadId));
+        item.TrySetResult();
+        item.GetResult(version).Should().Be(42);
+    }
+
+    [Fact]
+    public void PendingNonGenericResultMustNotRecycleTheSource()
+    {
+        var item = PooledValueExecutionWorkItem<TestSession, int>.Rent(
+            static (_, _) => 42, ExecutionRequestOptions.Default, CancellationToken.None);
+        var source = (IValueTaskSource)item;
+        var version = item.Version;
+        Action premature = () => source.GetResult(version);
+        premature.Should().Throw<InvalidOperationException>();
+        item.Version.Should().Be(version);
+        item.Execute(new TestSession(1, Environment.CurrentManagedThreadId));
+        item.TrySetResult();
+        source.GetResult(version);
+    }
+
+    [Fact]
+    public void PendingVoidResultMustNotRecycleTheSource()
+    {
+        var item = PooledVoidExecutionWorkItem<TestSession>.Rent(
+            static (_, _) => { }, ExecutionRequestOptions.Default, CancellationToken.None);
+        var version = item.Version;
+        Action premature = () => item.GetResult(version);
+        premature.Should().Throw<InvalidOperationException>();
+        item.Version.Should().Be(version);
+        item.Execute(new TestSession(1, Environment.CurrentManagedThreadId));
+        item.TrySetResult();
+        item.GetResult(version);
+    }
+
+    [Fact]
     public async Task PooledVoidWorkItem_TrySetCanceled_ShouldProduceCanceledValueTaskAsync()
     {
         var item = PooledVoidExecutionWorkItem<TestSession>.Rent(
@@ -58,6 +101,7 @@ public sealed class PooledExecutionWorkItemTest
             CancellationToken.None);
 
         item.Execute(new TestSession(1, Environment.CurrentManagedThreadId));
+        item.TrySetResult();
 
         // Any token != Version triggers the stale-token guard. The core
         // throws InvalidOperationException per the ManualResetValueTaskSourceCore
@@ -79,6 +123,7 @@ public sealed class PooledExecutionWorkItemTest
             CancellationToken.None);
 
         item.Execute(new TestSession(1, Environment.CurrentManagedThreadId));
+        item.TrySetResult();
 
         var source = (IValueTaskSource)item;
 
@@ -86,11 +131,13 @@ public sealed class PooledExecutionWorkItemTest
 
         var continuationRan = new TaskCompletionSource<bool>(
             TaskCreationOptions.RunContinuationsAsynchronously);
+#pragma warning disable S8969
         source.OnCompleted(
             static state => ((TaskCompletionSource<bool>)state!).TrySetResult(true),
             continuationRan,
             item.Version,
             ValueTaskSourceOnCompletedFlags.None);
+#pragma warning restore S8969
 
         (await continuationRan.Task).Should().BeTrue();
 
@@ -134,7 +181,9 @@ public sealed class PooledExecutionWorkItemTest
             ExecutionRequestOptions.Default,
             CancellationToken.None);
 
-        item.Execute(new TestSession(1, Environment.CurrentManagedThreadId));
+        Action execute = () => item.Execute(new TestSession(1, Environment.CurrentManagedThreadId));
+        var failure = execute.Should().Throw<InvalidOperationException>().Which;
+        item.TrySetException(failure);
 
         var valueTask = new ValueTask((IValueTaskSource)item, item.Version);
         Func<Task> awaitCall = async () => await valueTask;
@@ -150,12 +199,86 @@ public sealed class PooledExecutionWorkItemTest
             ExecutionRequestOptions.Default,
             CancellationToken.None);
 
-        item.Execute(new TestSession(1, Environment.CurrentManagedThreadId));
+        Action execute = () => item.Execute(new TestSession(1, Environment.CurrentManagedThreadId));
+        var failure = execute.Should().Throw<InvalidOperationException>().Which;
+        item.TrySetException(failure);
 
         var valueTask = new ValueTask<int>(item, item.Version);
         Func<Task<int>> awaitCall = async () => await valueTask;
         (await awaitCall.Should().ThrowAsync<InvalidOperationException>())
             .WithMessage("Work item action is unavailable.");
+    }
+
+    [Fact]
+    public void PooledValueWorkItem_ShouldBoundRetainedItemsAndRecoverAfterOverflow()
+    {
+        VerifyBoundedPool(
+            static () => PooledValueExecutionWorkItem<CapacitySession, int>.Rent(
+                static (session, _) => ++session.ExecutionCount, ExecutionRequestOptions.Default, CancellationToken.None),
+            static item =>
+            {
+                var version = item.Version;
+                var session = new CapacitySession();
+                item.Execute(session);
+                item.TrySetResult();
+                item.GetResult(version).Should().Be(1);
+                session.ExecutionCount.Should().Be(1);
+            });
+    }
+
+    [Fact]
+    public void PooledVoidWorkItem_ShouldBoundRetainedItemsAndRecoverAfterOverflow()
+    {
+        VerifyBoundedPool(
+            static () => PooledVoidExecutionWorkItem<CapacitySession>.Rent(
+                static (session, _) => session.ExecutionCount++, ExecutionRequestOptions.Default, CancellationToken.None),
+            static item =>
+            {
+                var version = item.Version;
+                var session = new CapacitySession();
+                item.Execute(session);
+                item.TrySetResult();
+                item.GetResult(version);
+                session.ExecutionCount.Should().Be(1);
+            });
+    }
+
+    private static void VerifyBoundedPool<TWorkItem>(Func<TWorkItem> rent, Action<TWorkItem> complete)
+        where TWorkItem : class
+    {
+        const int PoolCapacity = 256;
+        var rentItem = rent ?? throw new ArgumentNullException(nameof(rent));
+        var completeItem = complete ?? throw new ArgumentNullException(nameof(complete));
+        var previous = Array.Empty<TWorkItem>();
+        for (var round = 0; round < 3; round++)
+        {
+            var items = new TWorkItem[PoolCapacity + 1];
+            for (var index = 0; index < items.Length; index++)
+            {
+                items[index] = rentItem();
+                if (previous.Length != 0 && index < PoolCapacity)
+                {
+                    items[index].Should().BeSameAs(previous[index]);
+                }
+            }
+
+            if (previous.Length != 0)
+            {
+                items[PoolCapacity].Should().NotBeSameAs(previous[PoolCapacity]);
+            }
+
+            foreach (var item in items)
+            {
+                completeItem(item);
+            }
+
+            previous = items;
+        }
+    }
+
+    private sealed class CapacitySession
+    {
+        public int ExecutionCount { get; set; }
     }
 
     private sealed class TestSession(int sessionId, int ownerThreadId)

@@ -24,12 +24,13 @@ Each record follows the same shape:
 | [0001](0001-retain-test-only-hooks.md) | Retain test-only hooks instead of deleting them | Accepted |
 | [0002](0002-pluggable-worker-scheduler.md) | Pluggable `IWorkerScheduler<TSession>` seam with two built-ins | Accepted |
 | [0003](0003-public-diagnostic-constants.md) | Public `ExecutionDiagnosticNames` constants | Accepted |
-| [0004](0004-valuetask-hotpath-overloads.md) | `ValueTask` hot-path extension overloads | Accepted |
+| [0004](0004-valuetask-hotpath-overloads.md) | `ValueTask` hot-path extension overloads | Superseded by 0007 |
 | [0005](0005-public-integration-test-project.md) | Public integration test project | Accepted |
 | [0006](0006-nuget-packaging-metadata.md) | NuGet packaging metadata and Source Link | Accepted |
-| [0007](0007-zero-alloc-value-task-source.md) | Zero-allocation `ExecuteValueAsync` via pooled `IValueTaskSource<T>` | Accepted |
+| [0007](0007-zero-alloc-value-task-source.md) | Zero-allocation `ExecuteValueAsync` via pooled `IValueTaskSource<T>` | Superseded by 0010 |
 | [0008](0008-uniform-snapshot-surface.md) | Uniform `Name` / `GetSnapshot` surface and single-factory pool constructor | Accepted |
 | [0009](0009-scoped-execution-diagnostics.md) | Scoped `ExecutionDiagnostics` with `Shared` singleton | Accepted |
+| [0010](0010-worker-completion-and-lifecycle.md) | Worker completion ownership, admission, and lifecycle | Accepted |
 
 ## Scope
 

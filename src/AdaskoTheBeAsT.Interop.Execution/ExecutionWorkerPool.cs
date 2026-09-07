@@ -299,7 +299,10 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
     /// <param name="action">Callback invoked with the session and the effective cancellation token.</param>
     /// <param name="options">Optional per-call tuning.</param>
     /// <param name="cancellationToken">Token observed during enqueue and during execution.</param>
-    /// <returns>A <see cref="ValueTask"/> that completes when <paramref name="action"/> finishes.</returns>
+    /// <returns>
+    /// A <see cref="ValueTask"/> that completes after execution and the selected worker's
+    /// lifecycle policy, including any required session recycling or teardown.
+    /// </returns>
     /// <remarks>
     /// Pooling avoids per-request source/Task allocations when a work item is reused;
     /// it does not guarantee allocation-free execution.
@@ -320,7 +323,11 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
     /// <param name="action">Callback invoked with the session and the effective cancellation token.</param>
     /// <param name="options">Optional per-call tuning.</param>
     /// <param name="cancellationToken">Token observed during enqueue and during execution.</param>
-    /// <returns>A <see cref="ValueTask{TResult}"/> producing the delegate result.</returns>
+    /// <returns>
+    /// A <see cref="ValueTask{TResult}"/> that produces the delegate result on success
+    /// and completes after execution and the selected worker's lifecycle policy,
+    /// including any required session recycling or teardown.
+    /// </returns>
     /// <remarks>
     /// Pooling avoids per-request source/Task allocations when a work item is reused;
     /// it does not guarantee allocation-free execution.

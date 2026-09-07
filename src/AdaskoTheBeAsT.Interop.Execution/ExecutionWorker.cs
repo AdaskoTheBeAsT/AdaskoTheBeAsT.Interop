@@ -172,7 +172,7 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
     }
 
     /// <summary>
-    /// Zero-allocation hot-path equivalent of
+    /// Pooled ValueTask equivalent of
     /// <see cref="ExecuteAsync(Action{TSession, CancellationToken}, ExecutionRequestOptions?, CancellationToken)"/>
     /// backed by a pooled <see cref="System.Threading.Tasks.Sources.IValueTaskSource"/>.
     /// </summary>
@@ -182,6 +182,8 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
     /// <returns>A <see cref="ValueTask"/> that completes when <paramref name="action"/> finishes.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="action"/> is <see langword="null"/>.</exception>
     /// <remarks>
+    /// Pooling avoids per-request source/Task allocations when a work item is reused;
+    /// it does not guarantee allocation-free execution.
     /// The returned <see cref="ValueTask"/> MUST be observed (awaited or
     /// <c>AsTask()</c>'d) exactly once, as required by the framework spec —
     /// the underlying source is recycled on first observation.
@@ -214,7 +216,7 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
     }
 
     /// <summary>
-    /// Zero-allocation hot-path equivalent of
+    /// Pooled ValueTask equivalent of
     /// <see cref="ExecuteAsync{TResult}(Func{TSession, CancellationToken, TResult}, ExecutionRequestOptions?, CancellationToken)"/>
     /// backed by a pooled <see cref="System.Threading.Tasks.Sources.IValueTaskSource{TResult}"/>.
     /// </summary>
@@ -225,6 +227,8 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
     /// <returns>A <see cref="ValueTask{TResult}"/> producing the delegate result.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="action"/> is <see langword="null"/>.</exception>
     /// <remarks>
+    /// Pooling avoids per-request source/Task allocations when a work item is reused;
+    /// it does not guarantee allocation-free execution.
     /// The returned <see cref="ValueTask{TResult}"/> MUST be observed exactly
     /// once, as required by the framework spec — the underlying source is
     /// recycled on first observation.

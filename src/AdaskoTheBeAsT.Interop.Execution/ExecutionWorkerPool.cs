@@ -14,6 +14,7 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
     private static readonly string TypeName = typeof(ExecutionWorkerPool<TSession>).Name;
 
     private readonly ExecutionWorker<TSession>[] _workers;
+    private readonly HashSet<ExecutionWorker<TSession>> _workerMembership;
     private readonly IReadOnlyList<IExecutionWorker<TSession>> _workerView;
     private readonly IWorkerScheduler<TSession> _scheduler;
     private readonly ExecutionWorkerPoolOptions _options;
@@ -135,6 +136,9 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
         _options.Validate();
         _scheduler = scheduler ?? ResolveBuiltInScheduler(_options.SchedulingStrategy);
         _workers = CreateWorkers(sessionFactoryFactory, _options);
+
+        // Membership is never mutated after construction, so concurrent dispatches only read it.
+        _workerMembership = [.. _workers];
         _workerView = Array.AsReadOnly(_workers);
         _disposeTimeout = _options.DisposeTimeout;
 
@@ -287,15 +291,19 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
     }
 
     /// <summary>
-    /// Zero-allocation hot-path equivalent of
+    /// Pooled ValueTask equivalent of
     /// <see cref="ExecuteAsync(Action{TSession, CancellationToken}, ExecutionRequestOptions?, CancellationToken)"/>.
-    /// Routes to a scheduled worker and uses the per-worker pooled
+    /// Routes to a scheduled worker and uses a pooled
     /// <see cref="System.Threading.Tasks.Sources.IValueTaskSource"/>.
     /// </summary>
     /// <param name="action">Callback invoked with the session and the effective cancellation token.</param>
     /// <param name="options">Optional per-call tuning.</param>
     /// <param name="cancellationToken">Token observed during enqueue and during execution.</param>
     /// <returns>A <see cref="ValueTask"/> that completes when <paramref name="action"/> finishes.</returns>
+    /// <remarks>
+    /// Pooling avoids per-request source/Task allocations when a work item is reused;
+    /// it does not guarantee allocation-free execution.
+    /// </remarks>
     public ValueTask ExecuteValueAsync(
         Action<TSession, CancellationToken> action,
         ExecutionRequestOptions? options = null,
@@ -305,7 +313,7 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
     }
 
     /// <summary>
-    /// Zero-allocation hot-path equivalent of
+    /// Pooled ValueTask equivalent of
     /// <see cref="ExecuteAsync{TResult}(Func{TSession, CancellationToken, TResult}, ExecutionRequestOptions?, CancellationToken)"/>.
     /// </summary>
     /// <typeparam name="TResult">The result type returned by <paramref name="action"/>.</typeparam>
@@ -313,6 +321,10 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
     /// <param name="options">Optional per-call tuning.</param>
     /// <param name="cancellationToken">Token observed during enqueue and during execution.</param>
     /// <returns>A <see cref="ValueTask{TResult}"/> producing the delegate result.</returns>
+    /// <remarks>
+    /// Pooling avoids per-request source/Task allocations when a work item is reused;
+    /// it does not guarantee allocation-free execution.
+    /// </remarks>
     public ValueTask<TResult> ExecuteValueAsync<TResult>(
         Func<TSession, CancellationToken, TResult> action,
         ExecutionRequestOptions? options = null,
@@ -534,7 +546,7 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
 
         var selected = _scheduler.SelectWorker(_workerView)
             ?? throw new InvalidOperationException("The worker scheduler returned null.");
-        if (selected is ExecutionWorker<TSession> concrete && Array.IndexOf(_workers, concrete) >= 0)
+        if (selected is ExecutionWorker<TSession> concrete && _workerMembership.Contains(concrete))
         {
             return concrete;
         }

@@ -750,6 +750,38 @@ public sealed class ExecutionWorkerPoolTest
         workerPool.WorkerCount.Should().Be(3);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task CustomScheduler_ShouldAcceptEveryOwnedWorkerAcrossAllOverloadsAsync(int targetIndex)
+    {
+        var tracker = new PoolSessionTracker();
+        var executedWorkerIndices = new ConcurrentBag<int>();
+        await using var workerPool = new ExecutionWorkerPool<PoolSession>(
+            workerIndex => new IndexedTrackingSessionFactory(workerIndex, tracker),
+            new ExecutionWorkerPoolOptions(3),
+            new FixedIndexScheduler(targetIndex));
+
+        await workerPool.ExecuteAsync(
+            (session, _) => executedWorkerIndices.Add(session.WorkerIndex),
+            cancellationToken: CancellationToken.None);
+        var taskResult = await workerPool.ExecuteAsync(
+            static (session, _) => session.WorkerIndex,
+            cancellationToken: CancellationToken.None);
+        await workerPool.ExecuteValueAsync(
+            (session, _) => executedWorkerIndices.Add(session.WorkerIndex),
+            cancellationToken: CancellationToken.None);
+        var valueTaskResult = await workerPool.ExecuteValueAsync(
+            static (session, _) => session.WorkerIndex,
+            cancellationToken: CancellationToken.None);
+
+        executedWorkerIndices.Should().HaveCount(2).And.OnlyContain(workerIndex => workerIndex == targetIndex);
+        taskResult.Should().Be(targetIndex);
+        valueTaskResult.Should().Be(targetIndex);
+        tracker.GetCreateCount(targetIndex).Should().Be(1);
+    }
+
     [Fact]
     public async Task ExecuteValueAsync_ShouldRoutesThroughConcreteWorkerAsync()
     {

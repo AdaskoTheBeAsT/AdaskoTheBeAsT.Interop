@@ -5,7 +5,26 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.0.0] - Unreleased
+## [2.1.0] - Unreleased
+
+A dependency and build-tooling update for all three packages. Public APIs and
+the six-target framework matrix are unchanged from 2.0.0.
+
+### Changed
+
+- Raised Microsoft.Extensions dependency minimums in the DependencyInjection
+  and Hosting packages from `10.0.11` to `10.0.12` for .NET 10 and .NET Framework,
+  and from `9.0.19` to `9.0.20` for .NET 9. Existing upper bounds and .NET 8
+  dependencies are unchanged.
+- Raised `System.Threading.Channels` and `System.Diagnostics.DiagnosticSource`
+  dependency minimums from `10.0.11` to `10.0.12` for .NET Framework in the core
+  package, retaining the existing upper bounds.
+- Aligned test-project dependency versions with the package updates.
+- Updated the .NET SDK in `global.json` from `10.0.400` to `10.0.401`.
+- Updated `Meziantou.Analyzer` from `3.0.217` to `3.0.231` and
+  `Microsoft.CodeAnalysis.NetAnalyzers` from `10.0.400` to `10.0.401`.
+
+## [2.0.0]
 
 A correctness and lifecycle upgrade for applications using dedicated-thread
 native or COM sessions. Compared with tagged 1.0.0, this release makes pooled
@@ -509,5 +528,6 @@ section describe 1.0.0, not the current six-target support matrix.
   Asyncify, CodeCracker, ConcurrencyLab.ParallelChecker, ReflectionAnalyzer;
   every suppression carries a justifying comment.
 
-[2.0.0]: https://github.com/AdaskoTheBeAsT/AdaskoTheBeAsT.Interop/compare/v1.0.0...HEAD
+[2.1.0]: https://github.com/AdaskoTheBeAsT/AdaskoTheBeAsT.Interop/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/AdaskoTheBeAsT/AdaskoTheBeAsT.Interop/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/AdaskoTheBeAsT/AdaskoTheBeAsT.Interop/releases/tag/v1.0.0

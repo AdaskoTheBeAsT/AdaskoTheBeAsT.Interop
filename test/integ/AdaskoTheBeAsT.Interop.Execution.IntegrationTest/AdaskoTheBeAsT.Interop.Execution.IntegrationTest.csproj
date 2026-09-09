@@ -15,8 +15,8 @@
     <NoWarn>$(NoWarn);xUnit1051;CC0030</NoWarn>
   </PropertyGroup>
 
-  <ItemGroup Condition="'$(TargetFramework)' == 'net481' OR '$(TargetFramework)' == 'net48' OR '$(TargetFramework)' == 'net472' OR '$(TargetFramework)' == 'net471' OR '$(TargetFramework)' == 'net47' OR '$(TargetFramework)' == 'net462'">
-    <PackageReference Include="System.Threading.Channels" Version="10.0.11" />
+  <ItemGroup Condition="'$(TargetFramework)' == 'net481' OR '$(TargetFramework)' == 'net48' OR '$(TargetFramework)' == 'net472'">
+    <PackageReference Include="System.Threading.Channels" Version="10.0.12" />
   </ItemGroup>
 
   <ItemGroup>

@@ -41,10 +41,30 @@ And now it is. ✨
 
 ---
 
+## Changelog
+
+### 2.1.0 (Unreleased)
+
+The version in [`Directory.Build.props`](Directory.Build.props) is **2.1.0**
+for all three packages. This release updates dependencies and build tooling
+without changing the library's public APIs or supported target frameworks.
+
+- Updated Microsoft.Extensions dependency minimums to **10.0.12** for .NET 10
+  and .NET Framework, and **9.0.20** for .NET 9. .NET 8 dependencies are unchanged.
+- Updated `System.Threading.Channels` and `System.Diagnostics.DiagnosticSource`
+  minimums to **10.0.12** for .NET Framework.
+- Updated the .NET SDK to **10.0.401**, `Meziantou.Analyzer` to **3.0.231**,
+  and `Microsoft.CodeAnalysis.NetAnalyzers` to **10.0.401**.
+- Aligned test-project dependencies with the updated package versions.
+
+See the [full changelog](CHANGELOG.md) for release history.
+
+---
+
 ## Why upgrade to 2.0.0?
 
 **2.0.0 makes worker execution and shutdown more reliable and raises the minimum
-.NET Framework version to 4.7.2.** It is currently unreleased. Dropping
+.NET Framework version to 4.7.2.** Dropping
 `net462`, `net47`, and `net471` is a breaking change and the reason for the major
 version. Existing integration APIs remain available on supported targets.
 The comparison below is against the tagged **1.0.0** release.

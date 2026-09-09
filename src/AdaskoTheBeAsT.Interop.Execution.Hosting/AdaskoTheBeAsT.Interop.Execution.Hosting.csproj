@@ -32,7 +32,7 @@
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="[8.0.2,9.0.0)" />
   </ItemGroup>
 
-  <ItemGroup Condition="'$(TargetFramework)' == 'net481' OR '$(TargetFramework)' == 'net48' OR '$(TargetFramework)' == 'net472' OR '$(TargetFramework)' == 'net471' OR '$(TargetFramework)' == 'net47' OR '$(TargetFramework)' == 'net462'">
+  <ItemGroup Condition="'$(TargetFramework)' == 'net481' OR '$(TargetFramework)' == 'net48' OR '$(TargetFramework)' == 'net472'">
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="[10.0.12,11.0.0)" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="[10.0.12,11.0.0)" />
   </ItemGroup>

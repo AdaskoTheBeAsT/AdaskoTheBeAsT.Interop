@@ -14,10 +14,12 @@ and updates dependencies and build tooling across all three packages.
 
 ### Added
 
-- `IExecutionWorker<TSession>.ExecuteValueAsync` and
-  `IExecutionWorkerPool<TSession>.ExecuteValueAsync` overloads (both void and
-  `TResult`-returning) so consumers injecting the interfaces via DI can use the
-  pooled `ValueTask` execution path without casting to concrete types.
+- `IExecutionDispatcher<TSession>` shared base interface inherited by
+  `IExecutionWorker<TSession>` and `IExecutionWorkerPool<TSession>`, unifying
+  `WorkerFaulted`, `QueueDepth`, `Name`, `Initialize`, `InitializeAsync`,
+  `ExecuteAsync`, and `ExecuteValueAsync` (both void and `TResult`-returning
+  overloads) so consumers injecting the interfaces via DI can use the pooled
+  `ValueTask` execution path without casting to concrete types.
 - `AddExecutionWorkerPool<TSession>` in
   `AdaskoTheBeAsT.Interop.Execution.DependencyInjection` now resolves an
   optional `IWorkerScheduler<TSession>` from the `IServiceProvider` and passes

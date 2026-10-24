@@ -3,7 +3,7 @@ namespace AdaskoTheBeAsT.Interop.Execution;
 /// <summary>
 /// Built-in <see cref="IWorkerScheduler{TSession}"/> that dispatches each
 /// submission to the worker whose current
-/// <see cref="IExecutionWorker{TSession}.QueueDepth"/> is lowest. Ties are
+/// <see cref="IExecutionDispatcher{TSession}.QueueDepth"/> is lowest. Ties are
 /// broken using a shared rolling index so equal-depth workers are still
 /// selected in round-robin order instead of piling on worker 0. Faulted
 /// workers are skipped while at least one healthy worker remains.

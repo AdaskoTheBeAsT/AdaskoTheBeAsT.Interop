@@ -50,9 +50,11 @@ for all three packages. This release improves DI ergonomics, hardens diagnostics
 lifetime and bounded queue admission, cleans up analyzer findings, and updates
 runtime, test, and analyzer dependencies:
 
-- **Pooled `ValueTask` execution on interfaces:** exposed void and
-  `TResult`-returning `ExecuteValueAsync` overloads directly on
-  `IExecutionWorker<TSession>` and `IExecutionWorkerPool<TSession>`, so DI
+- **Pooled `ValueTask` execution on interfaces & shared `IExecutionDispatcher<TSession>` base:**
+  extracted the common dispatch contract (`WorkerFaulted`, `QueueDepth`, `Name`,
+  `Initialize`, `InitializeAsync`, `ExecuteAsync`, and `ExecuteValueAsync` void
+  and `TResult` overloads) into `IExecutionDispatcher<TSession>`, inherited by
+  both `IExecutionWorker<TSession>` and `IExecutionWorkerPool<TSession>`, so DI
   consumers injecting the interfaces can use the pooled `ValueTask` path without
   casting to concrete types.
 - **Custom pool scheduler resolution in DI:** `AddExecutionWorkerPool<TSession>`

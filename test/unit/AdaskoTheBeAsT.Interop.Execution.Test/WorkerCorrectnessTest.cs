@@ -441,6 +441,82 @@ public sealed class WorkerCorrectnessTest
     }
 
     [Fact]
+    public async Task QueueDepthMustNeverExceedQueueCapacityDuringRejectionsAsync()
+    {
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        await using var worker = new ExecutionWorker<Session>(
+            new SessionFactory(),
+            new ExecutionWorkerOptions { QueueCapacity = 2 });
+
+        var active = worker.ExecuteAsync(
+            (s, _) =>
+            {
+                entered.Set();
+                release.Wait(Deadline, TestToken).Should().BeTrue();
+                return s.Id;
+            },
+            cancellationToken: TestToken);
+
+        try
+        {
+            await WaitForSignalAsync(entered);
+
+            var queued1 = worker.ExecuteAsync(static (s, _) => s.Id, cancellationToken: TestToken);
+            var queued2 = worker.ExecuteAsync(static (s, _) => s.Id, cancellationToken: TestToken);
+            worker.QueueDepth.Should().Be(2);
+
+            for (var i = 0; i < 50; i++)
+            {
+                Func<Task<int>> excess = () => worker.ExecuteAsync(static (s, _) => s.Id, cancellationToken: TestToken);
+                await excess.Should().ThrowAsync<InvalidOperationException>().WithMessage("*capacity*");
+                worker.QueueDepth.Should().Be(2);
+            }
+
+            release.Set();
+            await AwaitAsync(active);
+            await AwaitAsync(queued1);
+            await AwaitAsync(queued2);
+        }
+        finally
+        {
+            release.Set();
+        }
+
+        worker.QueueDepth.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task InterfacesShouldExposeExecuteValueAsyncOverloadsAsync()
+    {
+        await using IExecutionWorker<Session> worker = new ExecutionWorker<Session>(new SessionFactory());
+        var workerVoidRan = false;
+        await worker.ExecuteValueAsync(
+            (_, _) => workerVoidRan = true,
+            cancellationToken: TestToken);
+        var workerValue = await worker.ExecuteValueAsync(
+            static (s, _) => s.Id,
+            cancellationToken: TestToken);
+
+        workerVoidRan.Should().BeTrue();
+        workerValue.Should().Be(1);
+
+        await using IExecutionWorkerPool<Session> pool = new ExecutionWorkerPool<Session>(
+            _ => new SessionFactory(),
+            new ExecutionWorkerPoolOptions(workerCount: 2));
+        var poolVoidRan = false;
+        await pool.ExecuteValueAsync(
+            (_, _) => poolVoidRan = true,
+            cancellationToken: TestToken);
+        var poolValue = await pool.ExecuteValueAsync(
+            static (s, _) => s.Id,
+            cancellationToken: TestToken);
+
+        poolVoidRan.Should().BeTrue();
+        poolValue.Should().BePositive();
+    }
+
+    [Fact]
     public async Task WorkerShouldSnapshotOptionsAsync()
     {
         var options = new ExecutionWorkerOptions { Name = "original", MaxOperationsPerSession = 1 };

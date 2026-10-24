@@ -43,19 +43,52 @@ And now it is. ✨
 
 ## Changelog
 
-### 2.1.0 (Unreleased)
+### 2.2.0
 
-The version in [`Directory.Build.props`](Directory.Build.props) is **2.1.0**
-for all three packages. This release updates dependencies and build tooling
-without changing the library's public APIs or supported target frameworks.
+The version in [`Directory.Build.props`](Directory.Build.props) is **2.2.0**
+for all three packages. This release improves DI ergonomics, hardens diagnostics
+lifetime and bounded queue admission, cleans up analyzer findings, and updates
+runtime, test, and analyzer dependencies:
 
-- Updated Microsoft.Extensions dependency minimums to **10.0.12** for .NET 10
-  and .NET Framework, and **9.0.20** for .NET 9. .NET 8 dependencies are unchanged.
-- Updated `System.Threading.Channels` and `System.Diagnostics.DiagnosticSource`
-  minimums to **10.0.12** for .NET Framework.
-- Updated the .NET SDK to **10.0.401**, `Meziantou.Analyzer` to **3.0.231**,
-  and `Microsoft.CodeAnalysis.NetAnalyzers` to **10.0.401**.
-- Aligned test-project dependencies with the updated package versions.
+- **Pooled `ValueTask` execution on interfaces & shared `IExecutionDispatcher<TSession>` base:**
+  extracted the common dispatch contract (`WorkerFaulted`, `QueueDepth`, `Name`,
+  `Initialize`, `InitializeAsync`, `ExecuteAsync`, and `ExecuteValueAsync` void
+  and `TResult` overloads) into `IExecutionDispatcher<TSession>`, inherited by
+  both `IExecutionWorker<TSession>` and `IExecutionWorkerPool<TSession>`, so DI
+  consumers injecting the interfaces can use the pooled `ValueTask` path without
+  casting to concrete types.
+- **Custom pool scheduler resolution in DI:** `AddExecutionWorkerPool<TSession>`
+  in `AdaskoTheBeAsT.Interop.Execution.DependencyInjection` now resolves an
+  optional `IWorkerScheduler<TSession>` from the `IServiceProvider` when
+  registered.
+- **Leak-free diagnostics registration:** `ExecutionDiagnostics` now tracks
+  registered workers via `WeakReference<T>` instead of a strong closure over the
+  worker instance, preventing `ExecutionDiagnostics.Shared` (or custom
+  `ExecutionDiagnostics` scopes) from rooting undisposed workers in memory and
+  automatically pruning collected workers when `execution.worker.queue_depth` is
+  observed.
+- **Exact bounded queue admission under contention:** replaced
+  increment-then-rollback admission in `ExecutionWorker<TSession>` with a
+  compare-and-swap (CAS) loop when `QueueCapacity > 0`, ensuring `QueueDepth`
+  and `LeastQueuedWorkerScheduler` snapshots never transiently exceed
+  `QueueCapacity` during concurrent capacity rejections.
+- **Analyzer & code-quality cleanups:** initialized `ExecutionWorkItem<TResult>.Task`
+  in the constructor (`VSTHRD003`), exposed `ExecutionDiagnostics.QueueDepthGauge`
+  internally (`IDE0052` / `S1144` / `S4487`), simplified thread-name pattern
+  matching (`S8969`), and moved `ManualResetValueTaskSourceCore<T>.RunContinuationsAsynchronously`
+  setup into the pooled work-item constructors (`CC0121`), removing the
+  associated warning suppressions.
+- **Dependency & analyzer updates:** raised `Microsoft.Extensions.*` dependency
+  minimums to **10.0.13** for .NET 10 and .NET Framework and **9.0.21** for
+  .NET 9 (.NET 8 unchanged); raised `System.Threading.Channels` and
+  `System.Diagnostics.DiagnosticSource` minimums to **10.0.13** for .NET
+  Framework; updated analyzer and test-project packages (`AdaskoTheBeAsT.CodeCracker.CSharp`
+  **1.1.0.270**, `Meziantou.Analyzer` **3.0.316**,
+  `Microsoft.CodeAnalysis.NetAnalyzers` **10.0.402**,
+  `Microsoft.VisualStudio.Threading.Analyzers` **18.12.1**, `Roslynator.*`
+  **5.0.1**, `SonarAnalyzer.CSharp` **10.35.0.4138**, `StyleCop.Analyzers`
+  **1.3.151-beta**, `Microsoft.NET.Test.Sdk` **18.11.0**, `Moq` **4.21.0**, and
+  `xunit.v3` **4.0.2**).
 
 See the [full changelog](CHANGELOG.md) for release history.
 
@@ -359,13 +392,12 @@ public sealed class NativeSessionFactory : IExecutionSessionFactory<NativeSessio
 
 ### Pooled `ValueTask` hot path
 
-The concrete `ExecutionWorker<TSession>` and `ExecutionWorkerPool<TSession>`
-types expose instance `ExecuteValueAsync` overloads backed by pooled
-`IValueTaskSource<T>` work items on every supported TFM. Use the same synchronous
-delegate as with `ExecuteAsync`; only the returned completion type changes.
-The `IExecutionWorker<TSession>` and `IExecutionWorkerPool<TSession>` interfaces
-expose `ExecuteAsync`, not `ExecuteValueAsync`. Keep using `ExecuteAsync` when
-consuming those interfaces through DI.
+Both the `IExecutionWorker<TSession>` and `IExecutionWorkerPool<TSession>`
+interfaces and the concrete `ExecutionWorker<TSession>` and
+`ExecutionWorkerPool<TSession>` types expose instance `ExecuteValueAsync`
+overloads backed by pooled `IValueTaskSource<T>` work items on every supported
+TFM. Use the same synchronous delegate as with `ExecuteAsync`; only the returned
+completion type changes.
 
 ```csharp
 byte[] bytes = await worker.ExecuteValueAsync(
@@ -503,7 +535,7 @@ services.AddExecutionWorker<NativeSession>(options =>
 // resolve IExecutionWorker<NativeSession> from DI and use it as usual
 ```
 
-`AddExecutionWorkerPool<TSession>` is the pool-flavoured equivalent and binds `IOptions<ExecutionWorkerPoolOptions>`.
+`AddExecutionWorkerPool<TSession>` is the pool-flavoured equivalent; it binds `IOptions<ExecutionWorkerPoolOptions>` and resolves an optional `IWorkerScheduler<TSession>` from the service provider when registered.
 
 ---
 

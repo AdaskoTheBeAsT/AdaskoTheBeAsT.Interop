@@ -269,4 +269,70 @@ public sealed class ExecutionWorkerServiceCollectionExtensionsTest
         pool.Name.Should().Be("unnamed-pool-pipeline");
         pool.WorkerCount.Should().Be(2);
     }
+
+    [Fact]
+    public async Task AddExecutionWorker_ShouldSupportExecuteValueAsyncThroughInterfaceAsync()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<IExecutionSessionFactory<DiTestSession>, DiTestSessionFactory>();
+        services.AddExecutionWorker<DiTestSession>(options => options.Name = "DI ValueTask Worker");
+
+        await using var provider = services.BuildServiceProvider();
+        var worker = provider.GetRequiredService<IExecutionWorker<DiTestSession>>();
+
+        var voidExecuted = false;
+        await worker.ExecuteValueAsync(
+            (_, _) => voidExecuted = true,
+            cancellationToken: CancellationToken.None);
+
+        var result = await worker.ExecuteValueAsync(
+            static (session, _) => session.SessionId,
+            cancellationToken: CancellationToken.None);
+
+        voidExecuted.Should().BeTrue();
+        result.Should().BePositive();
+    }
+
+    [Fact]
+    public async Task AddExecutionWorkerPool_ShouldResolveCustomSchedulerAndSupportExecuteValueAsyncAsync()
+    {
+        var scheduler = new RecordingFirstWorkerScheduler();
+        var services = new ServiceCollection();
+        services.AddSingleton<IExecutionSessionFactory<DiTestSession>, DiTestSessionFactory>();
+        services.AddSingleton<IWorkerScheduler<DiTestSession>>(scheduler);
+        services.AddExecutionWorkerPool<DiTestSession>(options =>
+        {
+            options.WorkerCount = 2;
+            options.Name = "DI Custom Scheduler Pool";
+        });
+
+        await using var provider = services.BuildServiceProvider();
+        var pool = provider.GetRequiredService<IExecutionWorkerPool<DiTestSession>>();
+
+        var voidExecuted = false;
+        await pool.ExecuteValueAsync(
+            (_, _) => voidExecuted = true,
+            cancellationToken: CancellationToken.None);
+
+        var result = await pool.ExecuteValueAsync(
+            static (session, _) => session.SessionId,
+            cancellationToken: CancellationToken.None);
+
+        voidExecuted.Should().BeTrue();
+        result.Should().BePositive();
+        scheduler.SelectCount.Should().Be(2);
+    }
+
+    private sealed class RecordingFirstWorkerScheduler : IWorkerScheduler<DiTestSession>
+    {
+        private int _selectCount;
+
+        public int SelectCount => Volatile.Read(ref _selectCount);
+
+        public IExecutionWorker<DiTestSession> SelectWorker(IReadOnlyList<IExecutionWorker<DiTestSession>> workers)
+        {
+            Interlocked.Increment(ref _selectCount);
+            return workers[0];
+        }
+    }
 }

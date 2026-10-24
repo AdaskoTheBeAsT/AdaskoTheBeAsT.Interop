@@ -5,7 +5,7 @@ namespace AdaskoTheBeAsT.Interop.Execution.Hosting;
 
 /// <summary>
 /// <see cref="IHostedService"/> wrapper that drives
-/// <see cref="IExecutionWorkerPool{TSession}.InitializeAsync"/> on startup and
+/// <see cref="IExecutionDispatcher{TSession}.InitializeAsync"/> on startup and
 /// <c>DisposeAsync</c> on shutdown so every pool worker drains before the host
 /// exits.
 /// </summary>

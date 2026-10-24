@@ -64,7 +64,10 @@ public static class ExecutionWorkerServiceCollectionExtensions
     /// Requires <see cref="IExecutionSessionFactory{TSession}"/> to already be
     /// present in <paramref name="services"/>, and either a
     /// <paramref name="configure"/> delegate or a pre-registered
-    /// <c>IOptions&lt;ExecutionWorkerPoolOptions&gt;</c>.
+    /// <c>IOptions&lt;ExecutionWorkerPoolOptions&gt;</c>. If an
+    /// <see cref="IWorkerScheduler{TSession}"/> is registered in
+    /// <paramref name="services"/>, it is used instead of the built-in
+    /// <see cref="ExecutionWorkerPoolOptions.SchedulingStrategy"/>.
     /// </summary>
     /// <typeparam name="TSession">The session type exposed to submitted work items.</typeparam>
     /// <param name="services">The service collection to mutate.</param>
@@ -99,10 +102,12 @@ public static class ExecutionWorkerServiceCollectionExtensions
         services.TryAddSingleton<IExecutionWorkerPool<TSession>>(sp =>
         {
             var options = ResolvePoolOptions(sp, optionsName, configure is not null);
+            var scheduler = sp.GetService<IWorkerScheduler<TSession>>();
 
             return new ExecutionWorkerPool<TSession>(
                 _ => sp.GetRequiredService<IExecutionSessionFactory<TSession>>(),
-                options);
+                options,
+                scheduler);
         });
 
         return services;

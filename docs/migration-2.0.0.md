@@ -1,7 +1,6 @@
 # Migrating from 1.0.x to 2.0.0
 
-**Status: 2.0.0 is unreleased.** This guide compares the current implementation
-with the tagged `v1.0.0` release.
+This guide compares the 2.0.0+ implementation with the tagged `v1.0.0` release.
 
 **2.0.0 is a breaking release:** .NET Framework versions below 4.7.2 are no
 longer supported. The removed targets are `net462`, `net47`, and `net471`.
@@ -97,11 +96,12 @@ event handler to update a second flag.
 ### Await each pooled ValueTask exactly once
 
 The producer/consumer race is fixed, but the standard ValueTask usage rules
-still apply. These alternative snippets assume an existing concrete
-`ExecutionWorker<NativeSession>` and a synchronous `session.Render(string)`.
-Pooled overloads belong to the concrete worker/pool types, not their interfaces.
-The interfaces registered by DI expose `ExecuteAsync`; keep using that method
-unless your adapter deliberately works with the concrete implementation.
+still apply. These alternative snippets assume an existing
+`IExecutionWorker<NativeSession>` (or `ExecutionWorker<NativeSession>`) and a
+synchronous `session.Render(string)`. Starting in 2.2.0, both the interfaces
+registered by DI (`IExecutionWorker<TSession>` and
+`IExecutionWorkerPool<TSession>`) and the concrete worker/pool types expose
+`ExecuteValueAsync` as well as `ExecuteAsync`.
 
 ```csharp
 // One consumer: await the returned ValueTask once.

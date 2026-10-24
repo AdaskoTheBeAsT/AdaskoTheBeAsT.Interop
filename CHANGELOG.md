@@ -5,7 +5,68 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.1.0] - Unreleased
+## [2.2.0]
+
+Adds `ExecuteValueAsync` to the worker and pool interfaces, supports resolving
+custom `IWorkerScheduler<TSession>` instances from DI, hardens diagnostics
+worker registration and bounded queue admission, cleans up analyzer findings,
+and updates dependencies and build tooling across all three packages.
+
+### Added
+
+- `IExecutionDispatcher<TSession>` shared base interface inherited by
+  `IExecutionWorker<TSession>` and `IExecutionWorkerPool<TSession>`, unifying
+  `WorkerFaulted`, `QueueDepth`, `Name`, `Initialize`, `InitializeAsync`,
+  `ExecuteAsync`, and `ExecuteValueAsync` (both void and `TResult`-returning
+  overloads) so consumers injecting the interfaces via DI can use the pooled
+  `ValueTask` execution path without casting to concrete types.
+- `AddExecutionWorkerPool<TSession>` in
+  `AdaskoTheBeAsT.Interop.Execution.DependencyInjection` now resolves an
+  optional `IWorkerScheduler<TSession>` from the `IServiceProvider` and passes
+  it to `ExecutionWorkerPool<TSession>`.
+
+### Fixed
+
+- `ExecutionDiagnostics` now tracks `ExecutionWorker<TSession>` registrations
+  through a `WeakReference<T>` instead of a strong closure over the worker
+  instance, preventing `ExecutionDiagnostics.Shared` (or custom diagnostics
+  scopes) from rooting undisposed workers in memory and pruning collected
+  registrations during metric observation.
+- Bounded queue admission (`ExecutionWorkerOptions.QueueCapacity > 0`) in
+  `ExecutionWorker<TSession>` now uses a compare-and-swap (CAS) loop instead of
+  increment-then-rollback, ensuring `QueueDepth` and LeastQueued scheduling
+  snapshots never observe a transient over-count above `QueueCapacity` during
+  concurrent capacity rejections.
+- Cleaned up internal analyzer findings and removed their `#pragma warning disable`
+  suppressions: initialized `ExecutionWorkItem<TResult>.Task` in the constructor
+  (`VSTHRD003`), exposed `ExecutionDiagnostics.QueueDepthGauge` internally
+  (`IDE0052` / `S1144` / `S4487`), simplified thread-name pattern matching in
+  `ExecutionWorker<TSession>.CreateThreadName()` (`S8969`), and moved
+  `ManualResetValueTaskSourceCore<T>.RunContinuationsAsynchronously` setup into
+  the `PooledVoidExecutionWorkItem` and `PooledValueExecutionWorkItem`
+  constructors (`CC0121`).
+
+### Changed
+
+- Raised Microsoft.Extensions dependency minimums in the DependencyInjection
+  and Hosting packages from `10.0.12` to `10.0.13` for .NET 10 and .NET Framework,
+  and from `9.0.20` to `9.0.21` for .NET 9. Existing upper bounds and .NET 8
+  dependencies are unchanged.
+- Raised `System.Threading.Channels` and `System.Diagnostics.DiagnosticSource`
+  dependency minimums from `10.0.12` to `10.0.13` for .NET Framework in the core
+  package, retaining the existing upper bounds.
+- Updated analyzer dependencies (`AdaskoTheBeAsT.CodeCracker.CSharp` to
+  `1.1.0.270`, `Meziantou.Analyzer` to `3.0.316`,
+  `Microsoft.CodeAnalysis.NetAnalyzers` to `10.0.402`,
+  `Microsoft.VisualStudio.Threading.Analyzers` to `18.12.1`,
+  `Roslynator.*` to `5.0.1`, `SonarAnalyzer.CSharp` to `10.35.0.4138`, and
+  `StyleCop.Analyzers` to `1.3.151-beta`) and aligned test-project package
+  versions (`Microsoft.NET.Test.Sdk` `18.11.0`,
+  `Microsoft.Testing.Extensions.GitHubActionsReport` `2.5.1`, `Moq` `4.21.0`,
+  `xunit.v3` `4.0.2`, `xunit.analyzers` `2.2.0`, and `xunit.runner.visualstudio`
+  `4.0.1`).
+
+## [2.1.0]
 
 A dependency and build-tooling update for all three packages. Public APIs and
 the six-target framework matrix are unchanged from 2.0.0.
@@ -528,6 +589,7 @@ section describe 1.0.0, not the current six-target support matrix.
   Asyncify, CodeCracker, ConcurrencyLab.ParallelChecker, ReflectionAnalyzer;
   every suppression carries a justifying comment.
 
-[2.1.0]: https://github.com/AdaskoTheBeAsT/AdaskoTheBeAsT.Interop/compare/v2.0.0...HEAD
+[2.2.0]: https://github.com/AdaskoTheBeAsT/AdaskoTheBeAsT.Interop/compare/v2.1.0...v2.2.0
+[2.1.0]: https://github.com/AdaskoTheBeAsT/AdaskoTheBeAsT.Interop/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/AdaskoTheBeAsT/AdaskoTheBeAsT.Interop/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/AdaskoTheBeAsT/AdaskoTheBeAsT.Interop/releases/tag/v1.0.0

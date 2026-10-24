@@ -258,6 +258,18 @@ public sealed class TrivialCoverageTest
             CancellationToken cancellationToken = default) =>
             Task.FromResult(default(TResult)!);
 
+        public ValueTask ExecuteValueAsync(
+            Action<object, CancellationToken> action,
+            ExecutionRequestOptions? options = null,
+            CancellationToken cancellationToken = default) =>
+            default;
+
+        public ValueTask<TResult> ExecuteValueAsync<TResult>(
+            Func<object, CancellationToken, TResult> action,
+            ExecutionRequestOptions? options = null,
+            CancellationToken cancellationToken = default) =>
+            default;
+
         public ValueTask DisposeAsync() => default;
 
         public void Dispose()

@@ -1,8 +1,9 @@
 namespace AdaskoTheBeAsT.Interop.Execution;
 
 /// <summary>
-/// Event payload published by <see cref="IExecutionWorker{TSession}.WorkerFaulted"/>
-/// and <see cref="IExecutionWorkerPool{TSession}.WorkerFaulted"/> when a worker
+/// Event payload published by <see cref="IExecutionDispatcher{TSession}.WorkerFaulted"/>
+/// on <see cref="IExecutionWorker{TSession}"/> and
+/// <see cref="IExecutionWorkerPool{TSession}"/> when a worker
 /// enters a terminal faulted state (session creation/dispose failure or worker
 /// thread crash).
 /// </summary>

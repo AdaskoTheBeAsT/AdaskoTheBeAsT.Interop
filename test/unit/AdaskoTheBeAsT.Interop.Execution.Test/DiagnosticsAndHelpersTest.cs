@@ -1,3 +1,5 @@
+using System.Diagnostics.Metrics;
+using System.Runtime.CompilerServices;
 using AwesomeAssertions;
 using Xunit;
 
@@ -42,6 +44,69 @@ public sealed class DiagnosticsAndHelpersTest
 
         registration.Name.Should().Be("w");
         registration.GetQueueDepth().Should().Be(42);
+        registration.TryGetQueueDepth(out var depth).Should().BeTrue();
+        depth.Should().Be(42);
+    }
+
+    [Fact]
+    public void ExecutionWorkerRegistration_Create_ShouldThrowForNullWorker()
+    {
+        const object? worker = null;
+        Action action = () => _ = ExecutionWorkerRegistration.Create("w", worker!, static _ => 0);
+
+        action.Should().Throw<ArgumentNullException>()
+            .WithParameterName(nameof(worker));
+    }
+
+    [Fact]
+    public void ExecutionWorkerRegistration_Create_ShouldThrowForNullAccessor()
+    {
+        var worker = new object();
+        const Func<object, int>? queueDepthAccessor = null;
+        Action action = () => _ = ExecutionWorkerRegistration.Create("w", worker, queueDepthAccessor!);
+
+        action.Should().Throw<ArgumentNullException>()
+            .WithParameterName(nameof(queueDepthAccessor));
+    }
+
+    [Fact]
+    public void ExecutionWorkerRegistration_Create_ShouldNotRootTargetAndShouldPruneOnObservation()
+    {
+        using var diagnostics = new ExecutionDiagnostics("weak-reg." + Guid.NewGuid());
+        var observedMeasurements = 0;
+        using var listener = new MeterListener
+        {
+            InstrumentPublished = (instrument, receiver) =>
+            {
+                if (string.Equals(instrument.Meter.Name, diagnostics.SourceName, StringComparison.Ordinal))
+                {
+                    receiver.EnableMeasurementEvents(instrument);
+                }
+            },
+        };
+        listener.SetMeasurementEventCallback<int>((_, _, _, _) => observedMeasurements++);
+        listener.Start();
+
+        var (registration, weakWorker) = CreateWeakRegistrationInIsolatedFrame(diagnostics);
+
+        // S1215 disabled: forcing GC is the only deterministic way to verify that
+        // ExecutionWorkerRegistration's WeakReference does not root its target.
+#pragma warning disable S1215
+        for (var attempt = 0; attempt < 5 && weakWorker.IsAlive; attempt++)
+        {
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+            GC.WaitForPendingFinalizers();
+        }
+#pragma warning restore S1215
+
+        weakWorker.IsAlive.Should().BeFalse();
+        registration.TryGetQueueDepth(out var depth).Should().BeFalse();
+        depth.Should().Be(0);
+        registration.GetQueueDepth().Should().Be(0);
+
+        observedMeasurements = 0;
+        listener.RecordObservableInstruments();
+        observedMeasurements.Should().Be(0);
     }
 
     [Theory]
@@ -68,6 +133,7 @@ public sealed class DiagnosticsAndHelpersTest
     public void ExecutionDiagnostics_Dispose_ShouldBeIdempotent()
     {
         using var diagnostics = new ExecutionDiagnostics("coverage-test-scope-idempotent");
+        diagnostics.QueueDepthGauge.Should().NotBeNull();
 
         Action disposeTwice = () =>
         {
@@ -119,5 +185,25 @@ public sealed class DiagnosticsAndHelpersTest
         Action action = () => diagnostics.UnregisterWorker(null!);
 
         action.Should().NotThrow();
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static (ExecutionWorkerRegistration Registration, WeakReference WeakWorker) CreateWeakRegistrationInIsolatedFrame(
+        ExecutionDiagnostics diagnostics)
+    {
+        var holder = new QueueDepthHolder(17);
+        var registration = ExecutionWorkerRegistration.Create("weak-worker", holder, static h => h.Depth);
+        diagnostics.RegisterWorker(registration);
+
+        registration.TryGetQueueDepth(out var liveDepth).Should().BeTrue();
+        liveDepth.Should().Be(17);
+        registration.GetQueueDepth().Should().Be(17);
+
+        return (registration, new WeakReference(holder));
+    }
+
+    private sealed class QueueDepthHolder(int depth)
+    {
+        public int Depth { get; } = depth;
     }
 }

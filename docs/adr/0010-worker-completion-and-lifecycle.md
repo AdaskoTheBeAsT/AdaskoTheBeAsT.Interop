@@ -24,7 +24,7 @@ ValueTasks still require exactly one observation; defensive checks do not make
 multiple awaits supported.
 
 Pooled sources and instance `ExecuteValueAsync` overloads are available on all
-nine supported TFMs, using the task-source compatibility package on .NET
+six supported TFMs, using the task-source compatibility package on .NET
 Framework. There is no public extension-method fallback. Pooling avoids the
 per-request source/Task allocation after warm-up, not all possible channel,
 tracing, continuation, or cold-start allocations.

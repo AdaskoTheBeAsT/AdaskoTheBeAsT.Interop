@@ -36,16 +36,6 @@ public sealed class ExecutionDiagnostics : IDisposable
 
     private readonly Meter _meter;
     private readonly ConcurrentDictionary<ExecutionWorkerRegistration, byte> _workers = new();
-
-#pragma warning disable IDE0052, S1144, S4487
-    // QueueDepthGauge is an ObservableGauge registered on the instance Meter.
-    // The field keeps the instrument rooted for the lifetime of this scope so
-    // the meter keeps reporting. Analyzers flag it as unread because the gauge
-    // only interacts with consumers via the Meter pipeline, never via this
-    // field.
-    private readonly ObservableGauge<int> _queueDepthGauge;
-#pragma warning restore IDE0052, S1144, S4487
-
     private int _disposed;
 
     /// <summary>
@@ -85,7 +75,7 @@ public sealed class ExecutionDiagnostics : IDisposable
             unit: "{recycle}",
             description: "Number of session recycles triggered by execution workers, tagged by reason.");
 
-        _queueDepthGauge = _meter.CreateObservableGauge<int>(
+        QueueDepthGauge = _meter.CreateObservableGauge<int>(
             name: ExecutionDiagnosticNames.MetricQueueDepth,
             observeValues: ObserveQueueDepths,
             unit: "{item}",
@@ -108,6 +98,8 @@ public sealed class ExecutionDiagnostics : IDisposable
     internal Counter<long> OperationsCounter { get; }
 
     internal Counter<long> SessionRecyclesCounter { get; }
+
+    internal ObservableGauge<int> QueueDepthGauge { get; }
 
     /// <summary>
     /// Disposes the underlying <see cref="ActivitySource"/> and
@@ -164,8 +156,14 @@ public sealed class ExecutionDiagnostics : IDisposable
     {
         foreach (var worker in _workers.Keys)
         {
+            if (!worker.TryGetQueueDepth(out var queueDepth))
+            {
+                _workers.TryRemove(worker, out _);
+                continue;
+            }
+
             yield return new Measurement<int>(
-                worker.GetQueueDepth(),
+                queueDepth,
                 new KeyValuePair<string, object?>(ExecutionDiagnosticNames.TagWorkerName, worker.Name));
         }
     }

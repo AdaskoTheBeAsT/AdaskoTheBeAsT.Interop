@@ -31,14 +31,7 @@ internal sealed class PooledValueExecutionWorkItem<TSession, TResult>
     private static readonly ConcurrentQueue<PooledValueExecutionWorkItem<TSession, TResult>> Pool = new();
     private static int _pooledCount;
 
-    // CC0121 disabled: ManualResetValueTaskSourceCore<TResult> is a mutable
-    // struct by design. Marking the field readonly would cause every call that
-    // mutates it (SetResult / SetException / Reset / OnCompleted) to operate
-    // on a defensive copy instead of the instance field, silently breaking
-    // the IValueTaskSource<T> state machine.
-#pragma warning disable CC0121
-    private ManualResetValueTaskSourceCore<TResult> _core = new() { RunContinuationsAsynchronously = true };
-#pragma warning restore CC0121
+    private ManualResetValueTaskSourceCore<TResult> _core;
     private Func<TSession, CancellationToken, TResult>? _action;
     private ExecutionRequestOptions _options = ExecutionRequestOptions.Default;
     private CancellationToken _cancellationToken;
@@ -48,6 +41,7 @@ internal sealed class PooledValueExecutionWorkItem<TSession, TResult>
 
     private PooledValueExecutionWorkItem()
     {
+        _core.RunContinuationsAsynchronously = true;
     }
 
     public CancellationToken CancellationToken => _cancellationToken;

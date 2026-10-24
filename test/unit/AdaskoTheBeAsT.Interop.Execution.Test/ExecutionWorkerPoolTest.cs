@@ -1155,6 +1155,18 @@ public sealed class ExecutionWorkerPoolTest
             CancellationToken cancellationToken = default) =>
             Task.FromResult(default(TResult)!);
 
+        public ValueTask ExecuteValueAsync(
+            Action<PoolSession, CancellationToken> action,
+            ExecutionRequestOptions? options = null,
+            CancellationToken cancellationToken = default) =>
+            default;
+
+        public ValueTask<TResult> ExecuteValueAsync<TResult>(
+            Func<PoolSession, CancellationToken, TResult> action,
+            ExecutionRequestOptions? options = null,
+            CancellationToken cancellationToken = default) =>
+            default;
+
         public ValueTask DisposeAsync() => default;
 
         public void Dispose()

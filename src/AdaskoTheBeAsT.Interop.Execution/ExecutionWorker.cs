@@ -66,9 +66,10 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
             });
 
         _diagnostics = _options.Diagnostics ?? ExecutionDiagnostics.Shared;
-        _diagnosticsRegistration = new ExecutionWorkerRegistration(
+        _diagnosticsRegistration = ExecutionWorkerRegistration.Create(
             _options.Name,
-            () => Volatile.Read(ref _queueDepth));
+            this,
+            static worker => Volatile.Read(ref worker._queueDepth));
         _diagnostics.RegisterWorker(_diagnosticsRegistration);
     }
 
@@ -718,12 +719,27 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
 
     private void Submit(IExecutionWorkItem<TSession> workItem)
     {
-        var admitted = Interlocked.Increment(ref _queueDepth);
-        if (_options.QueueCapacity > 0 && admitted > _options.QueueCapacity)
+        var capacity = _options.QueueCapacity;
+        if (capacity > 0)
         {
-            Interlocked.Decrement(ref _queueDepth);
-            workItem.TrySetException(new InvalidOperationException("The worker admission capacity is exhausted."));
-            return;
+            while (true)
+            {
+                var current = Volatile.Read(ref _queueDepth);
+                if (current >= capacity)
+                {
+                    workItem.TrySetException(new InvalidOperationException("The worker admission capacity is exhausted."));
+                    return;
+                }
+
+                if (Interlocked.CompareExchange(ref _queueDepth, current + 1, current) == current)
+                {
+                    break;
+                }
+            }
+        }
+        else
+        {
+            Interlocked.Increment(ref _queueDepth);
         }
 
         // Queue during startup too: independent async continuations would reorder
@@ -799,12 +815,9 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
 
     private string CreateThreadName()
     {
-        var name = _options.Name;
-#pragma warning disable S8969
-        return string.IsNullOrWhiteSpace(name)
-            ? $"{typeof(TSession).Name} Execution Worker"
-            : name!;
-#pragma warning restore S8969
+        return _options.Name is { } name && !string.IsNullOrWhiteSpace(name)
+            ? name
+            : $"{typeof(TSession).Name} Execution Worker";
     }
 
     private void FailPendingItems(Exception exception)
@@ -848,24 +861,32 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
         _sessionFactory.DisposeSession(session);
     }
 
-    private sealed class ExecutionWorkItem<TResult>(
-        Func<TSession, CancellationToken, TResult> action,
-        ExecutionRequestOptions options,
-        CancellationToken cancellationToken) : IExecutionWorkItem<TSession>
+    private sealed class ExecutionWorkItem<TResult> : IExecutionWorkItem<TSession>
     {
-        private readonly Func<TSession, CancellationToken, TResult> _action = action;
+        private readonly Func<TSession, CancellationToken, TResult> _action;
         private readonly TaskCompletionSource<TResult> _completionSource = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
         private TResult? _result;
 
-        public CancellationToken CancellationToken { get; } = cancellationToken;
+        public ExecutionWorkItem(
+            Func<TSession, CancellationToken, TResult> action,
+            ExecutionRequestOptions options,
+            CancellationToken cancellationToken)
+        {
+            _action = action;
+            Options = options;
+            CancellationToken = cancellationToken;
+            Task = _completionSource.Task;
+        }
 
-        public ExecutionRequestOptions Options { get; } = options;
+        public CancellationToken CancellationToken { get; }
+
+        public ExecutionRequestOptions Options { get; }
 
         public ActivityContext ParentContext { get; } = Activity.Current?.Context ?? default;
 
-        public Task<TResult> Task => _completionSource.Task;
+        public Task<TResult> Task { get; }
 
         public void Execute(TSession session)
         {

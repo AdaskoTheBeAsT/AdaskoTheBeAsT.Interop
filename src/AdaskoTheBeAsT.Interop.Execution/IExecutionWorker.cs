@@ -94,4 +94,47 @@ public interface IExecutionWorker<TSession> : IDisposable, IAsyncDisposable
         Func<TSession, CancellationToken, TResult> action,
         ExecutionRequestOptions? options = null,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Pooled <see cref="ValueTask"/> equivalent of
+    /// <see cref="ExecuteAsync(Action{TSession, CancellationToken}, ExecutionRequestOptions?, CancellationToken)"/>
+    /// backed by a pooled <see cref="System.Threading.Tasks.Sources.IValueTaskSource"/>.
+    /// </summary>
+    /// <param name="action">Synchronous callback invoked with the session and the request cancellation token.</param>
+    /// <param name="options">Optional per-call tuning (<see cref="ExecutionRequestOptions.RecycleSessionOnFailure"/>).</param>
+    /// <param name="cancellationToken">Token observed during enqueue and during execution.</param>
+    /// <returns>
+    /// A <see cref="ValueTask"/> that completes after the delegate and any required session recycling.
+    /// </returns>
+    /// <remarks>
+    /// The returned <see cref="ValueTask"/> MUST be observed (awaited or <c>AsTask()</c>'d)
+    /// exactly once, as required by the framework spec — the underlying source is recycled
+    /// on first observation.
+    /// </remarks>
+    ValueTask ExecuteValueAsync(
+        Action<TSession, CancellationToken> action,
+        ExecutionRequestOptions? options = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Pooled <see cref="ValueTask{TResult}"/> equivalent of
+    /// <see cref="ExecuteAsync{TResult}(Func{TSession, CancellationToken, TResult}, ExecutionRequestOptions?, CancellationToken)"/>
+    /// backed by a pooled <see cref="System.Threading.Tasks.Sources.IValueTaskSource{TResult}"/>.
+    /// </summary>
+    /// <typeparam name="TResult">The result type returned by <paramref name="action"/>.</typeparam>
+    /// <param name="action">Synchronous callback invoked with the session and the request cancellation token.</param>
+    /// <param name="options">Optional per-call tuning (<see cref="ExecutionRequestOptions.RecycleSessionOnFailure"/>).</param>
+    /// <param name="cancellationToken">Token observed during enqueue and during execution.</param>
+    /// <returns>
+    /// A <see cref="ValueTask{TResult}"/> producing the delegate result after any required session recycling.
+    /// </returns>
+    /// <remarks>
+    /// The returned <see cref="ValueTask{TResult}"/> MUST be observed (awaited or <c>AsTask()</c>'d)
+    /// exactly once, as required by the framework spec — the underlying source is recycled
+    /// on first observation.
+    /// </remarks>
+    ValueTask<TResult> ExecuteValueAsync<TResult>(
+        Func<TSession, CancellationToken, TResult> action,
+        ExecutionRequestOptions? options = null,
+        CancellationToken cancellationToken = default);
 }

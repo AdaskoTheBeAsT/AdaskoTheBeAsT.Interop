@@ -89,4 +89,45 @@ public interface IExecutionWorkerPool<TSession> : IDisposable, IAsyncDisposable
         Func<TSession, CancellationToken, TResult> action,
         ExecutionRequestOptions? options = null,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Pooled <see cref="ValueTask"/> equivalent of
+    /// <see cref="ExecuteAsync(Action{TSession, CancellationToken}, ExecutionRequestOptions?, CancellationToken)"/>,
+    /// dispatching to the selected worker's
+    /// <see cref="IExecutionWorker{TSession}.ExecuteValueAsync(Action{TSession, CancellationToken}, ExecutionRequestOptions?, CancellationToken)"/>.
+    /// </summary>
+    /// <param name="action">Callback invoked with the session and the effective cancellation token.</param>
+    /// <param name="options">Optional per-call tuning (<see cref="ExecutionRequestOptions.RecycleSessionOnFailure"/>).</param>
+    /// <param name="cancellationToken">Token observed during enqueue and during execution.</param>
+    /// <returns>A <see cref="ValueTask"/> that completes when <paramref name="action"/> finishes.</returns>
+    /// <remarks>
+    /// The returned <see cref="ValueTask"/> MUST be observed (awaited or <c>AsTask()</c>'d)
+    /// exactly once, as required by the framework spec — the underlying source is recycled
+    /// on first observation.
+    /// </remarks>
+    ValueTask ExecuteValueAsync(
+        Action<TSession, CancellationToken> action,
+        ExecutionRequestOptions? options = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Pooled <see cref="ValueTask{TResult}"/> equivalent of
+    /// <see cref="ExecuteAsync{TResult}(Func{TSession, CancellationToken, TResult}, ExecutionRequestOptions?, CancellationToken)"/>,
+    /// dispatching to the selected worker's
+    /// <see cref="IExecutionWorker{TSession}.ExecuteValueAsync{TResult}(Func{TSession, CancellationToken, TResult}, ExecutionRequestOptions?, CancellationToken)"/>.
+    /// </summary>
+    /// <typeparam name="TResult">The result type returned by <paramref name="action"/>.</typeparam>
+    /// <param name="action">Callback invoked with the session and the effective cancellation token.</param>
+    /// <param name="options">Optional per-call tuning (<see cref="ExecutionRequestOptions.RecycleSessionOnFailure"/>).</param>
+    /// <param name="cancellationToken">Token observed during enqueue and during execution.</param>
+    /// <returns>A <see cref="ValueTask{TResult}"/> that produces the value returned by <paramref name="action"/>.</returns>
+    /// <remarks>
+    /// The returned <see cref="ValueTask{TResult}"/> MUST be observed (awaited or <c>AsTask()</c>'d)
+    /// exactly once, as required by the framework spec — the underlying source is recycled
+    /// on first observation.
+    /// </remarks>
+    ValueTask<TResult> ExecuteValueAsync<TResult>(
+        Func<TSession, CancellationToken, TResult> action,
+        ExecutionRequestOptions? options = null,
+        CancellationToken cancellationToken = default);
 }

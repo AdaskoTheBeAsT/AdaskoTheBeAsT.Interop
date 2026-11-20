@@ -12,8 +12,9 @@ public interface IExecutionSessionFactory<TSession>
 {
     /// <summary>
     /// Creates a new session instance for a worker. Called on the worker thread
-    /// lazily on first <c>ExecuteAsync</c> and again whenever the session is
-    /// recycled (max-operations or recycle-on-failure).
+    /// during startup (eagerly on <c>Initialize</c>/<c>InitializeAsync</c> or
+    /// lazily on first dispatch) and again whenever the session is recycled
+    /// (max-operations or recycle-on-failure).
     /// </summary>
     /// <param name="cancellationToken">Token signalled when the worker is disposed.</param>
     /// <returns>A fresh session instance.</returns>

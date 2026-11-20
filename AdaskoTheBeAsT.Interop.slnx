@@ -25,6 +25,7 @@
     <Project Path="src/AdaskoTheBeAsT.Interop.Execution/AdaskoTheBeAsT.Interop.Execution.csproj" Id="c48e6ff4-dbdc-4a47-9264-264b47f25c54" />
     <Project Path="src/AdaskoTheBeAsT.Interop.Execution.DependencyInjection/AdaskoTheBeAsT.Interop.Execution.DependencyInjection.csproj" />
     <Project Path="src/AdaskoTheBeAsT.Interop.Execution.Hosting/AdaskoTheBeAsT.Interop.Execution.Hosting.csproj" />
+    <Project Path="src/AdaskoTheBeAsT.Interop.Execution.AspNetCore/AdaskoTheBeAsT.Interop.Execution.AspNetCore.csproj" />
   </Folder>
   <Folder Name="/test/" />
   <Folder Name="/test/.props/">
@@ -37,5 +38,6 @@
     <Project Path="test/unit/AdaskoTheBeAsT.Interop.Execution.Test/AdaskoTheBeAsT.Interop.Execution.Test.csproj" Id="250546fa-23d8-4cb7-8a23-cf3b42d09d5f" />
     <Project Path="test/unit/AdaskoTheBeAsT.Interop.Execution.DependencyInjection.Test/AdaskoTheBeAsT.Interop.Execution.DependencyInjection.Test.csproj" />
     <Project Path="test/unit/AdaskoTheBeAsT.Interop.Execution.Hosting.Test/AdaskoTheBeAsT.Interop.Execution.Hosting.Test.csproj" />
+    <Project Path="test/unit/AdaskoTheBeAsT.Interop.Execution.AspNetCore.Test/AdaskoTheBeAsT.Interop.Execution.AspNetCore.Test.csproj" />
   </Folder>
 </Solution>

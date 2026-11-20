@@ -13,6 +13,8 @@ namespace AdaskoTheBeAsT.Interop.Execution;
 public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
     where TSession : class
 {
+    private const int NoRecycleReason = -1;
+
     private static readonly string TypeName = typeof(ExecutionWorker<TSession>).Name;
 
     private readonly Channel<IExecutionWorkItem<TSession>> _channel;
@@ -29,16 +31,23 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
 
     private readonly ExecutionWorkerRegistration _diagnosticsRegistration;
     private readonly ExecutionDiagnostics _diagnostics;
+    private readonly int _workerIndex;
+    private readonly int _workerCount;
 
     private volatile ExceptionDispatchInfo? _fatalFailure;
     private Task? _startupTask;
     private Thread? _workerThread;
     private TSession? _session;
+    private long _nextSessionGeneration;
+    private long _activeSessionGeneration;
+    private int _pendingRecycleReasonCode = NoRecycleReason;
+    private int _activePreviousRecycleReasonCode = NoRecycleReason;
     private int _disposeState;
     private int _operationsProcessed;
     private int _faultEventRaised;
     private int _queueDepth;
     private bool _initialized;
+    private bool _startupCompleted;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ExecutionWorker{TSession}"/> class.
@@ -53,10 +62,21 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
     public ExecutionWorker(
         IExecutionSessionFactory<TSession> sessionFactory,
         ExecutionWorkerOptions? options = null)
+        : this(sessionFactory, options, workerIndex: 0, workerCount: 1)
+    {
+    }
+
+    internal ExecutionWorker(
+        IExecutionSessionFactory<TSession> sessionFactory,
+        ExecutionWorkerOptions? options,
+        int workerIndex,
+        int workerCount)
     {
         _sessionFactory = sessionFactory ?? throw new ArgumentNullException(nameof(sessionFactory));
         _options = (options ?? ExecutionWorkerOptions.Default).Snapshot();
         _options.Validate();
+        _workerIndex = workerIndex;
+        _workerCount = workerCount;
         _channel = Channel.CreateUnbounded<IExecutionWorkItem<TSession>>(
             new UnboundedChannelOptions
             {
@@ -98,7 +118,9 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
             _options.Name,
             Volatile.Read(ref _queueDepth),
             fatalFailure is not null,
-            fatalFailure?.SourceException);
+            fatalFailure?.SourceException,
+            Volatile.Read(ref _startupCompleted),
+            Volatile.Read(ref _disposeState) != 0);
     }
 
     /// <inheritdoc />
@@ -381,10 +403,14 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
         }
 
         Exception? fatalException = null;
+        IDisposable? workerThreadScope = null;
 
         try
         {
+            _options.OnWorkerThreadStart?.Invoke();
+            workerThreadScope = _options.CreateWorkerThreadScope?.Invoke();
             EnsureSessionCreated(_workerCancellationTokenSource.Token);
+            Volatile.Write(ref _startupCompleted, value: true);
             startupCompletionSource.TrySetResult(null);
             ProcessChannel();
         }
@@ -400,33 +426,16 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
         }
         finally
         {
-            if (fatalException is not null)
-            {
-                SetFatalFailure(ExceptionDispatchInfo.Capture(fatalException));
-            }
+            TeardownWorkerLoop(workerThreadScope, fatalException);
+        }
+    }
 
-            try
-            {
-                DisposeSession();
-            }
-            catch (Exception exception)
-            {
-                fatalException ??= exception;
-                SetFatalFailure(ExceptionDispatchInfo.Capture(fatalException));
-            }
-
-            _channel.Writer.TryComplete(Fault);
-            FailPendingItems(Fault ?? new ObjectDisposedException(TypeName));
-            _workerCancellationTokenSource.Dispose();
-            _diagnostics.UnregisterWorker(_diagnosticsRegistration);
-
-            // Signal worker-thread exit to any awaiter of DisposeAsync. We always
-            // complete with a successful result so DisposeAsync does not resurface
-            // terminal session/create/dispose failures (those remain observable via
-            // IsFaulted / Fault / WorkerFaulted surface); this
-            // preserves the historical sync Dispose() contract of silently ignoring
-            // session dispose failures.
-            _workerExitCompletionSource.TrySetResult(null);
+    internal void ValidateCanSubmit()
+    {
+        lock (_syncRoot)
+        {
+            ThrowIfDisposed();
+            ThrowIfFaulted();
         }
     }
 
@@ -464,6 +473,54 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
         {
             _workerThread = workerThread;
         }
+    }
+
+    private static SessionRecycleReason? DecodeRecycleReason(int code) =>
+        code == NoRecycleReason ? null : (SessionRecycleReason)code;
+
+    private void TeardownWorkerLoop(IDisposable? workerThreadScope, Exception? fatalException)
+    {
+        if (fatalException is not null)
+        {
+            SetFatalFailure(ExceptionDispatchInfo.Capture(fatalException));
+        }
+
+        try
+        {
+            DisposeSession();
+        }
+        catch (Exception exception)
+        {
+            fatalException ??= exception;
+            SetFatalFailure(ExceptionDispatchInfo.Capture(fatalException));
+        }
+
+        try
+        {
+            // IDISP007 disabled: the worker owns the scope created via CreateWorkerThreadScope
+            // and disposes it once on the dedicated worker thread during shutdown.
+#pragma warning disable IDISP007
+            workerThreadScope?.Dispose();
+#pragma warning restore IDISP007
+        }
+        catch (Exception exception)
+        {
+            fatalException ??= exception;
+            SetFatalFailure(ExceptionDispatchInfo.Capture(fatalException));
+        }
+
+        _channel.Writer.TryComplete(Fault);
+        FailPendingItems(Fault ?? new ObjectDisposedException(TypeName));
+        _workerCancellationTokenSource.Dispose();
+        _diagnostics.UnregisterWorker(_diagnosticsRegistration);
+
+        // Signal worker-thread exit to any awaiter of DisposeAsync. We always
+        // complete with a successful result so DisposeAsync does not resurface
+        // terminal session/create/dispose failures (those remain observable via
+        // IsFaulted / Fault / WorkerFaulted surface); this
+        // preserves the historical sync Dispose() contract of silently ignoring
+        // session dispose failures.
+        _workerExitCompletionSource.TrySetResult(null);
     }
 
     private void RaiseFaultedOnce(Exception exception)
@@ -519,11 +576,6 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
             {
                 var startupCompletionSource = new TaskCompletionSource<object?>(
                     TaskCreationOptions.RunContinuationsAsynchronously);
-                var thread = new Thread(Process)
-                {
-                    IsBackground = true,
-                    Name = CreateThreadName(),
-                };
 
                 _startupTask = startupCompletionSource.Task;
                 _ = _startupTask.ContinueWith(
@@ -534,6 +586,12 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
                 _initialized = true;
                 try
                 {
+                    _options.BeforeThreadStart?.Invoke();
+                    var thread = _options.MaxStackSize > 0
+                        ? new Thread(Process, _options.MaxStackSize)
+                        : new Thread(Process);
+                    thread.IsBackground = true;
+                    thread.Name = CreateThreadName();
                     ConfigureThread(thread);
                     _workerThread = thread;
                     thread.Start(startupCompletionSource);
@@ -649,13 +707,13 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
                 var operations = Interlocked.Increment(ref _operationsProcessed);
                 if (_options.MaxOperationsPerSession > 0 && operations >= _options.MaxOperationsPerSession)
                 {
-                    DisposeSession();
+                    DisposeSession(SessionRecycleReason.MaxOperationsReached);
                     RecordSessionRecycle(ExecutionDiagnosticNames.RecycleMaxOperations);
                 }
             }
             else if (workItem.Options.RecycleSessionOnFailure)
             {
-                DisposeSession();
+                DisposeSession(SessionRecycleReason.OperationFaulted);
                 RecordSessionRecycle(ExecutionDiagnosticNames.RecycleFailure);
             }
         }
@@ -727,7 +785,7 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
                 var current = Volatile.Read(ref _queueDepth);
                 if (current >= capacity)
                 {
-                    workItem.TrySetException(new InvalidOperationException("The worker admission capacity is exhausted."));
+                    workItem.TrySetException(new ExecutionAdmissionRejectedException(_options.Name, capacity));
                     return;
                 }
 
@@ -767,9 +825,29 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        var createdSession = _sessionFactory.CreateSession(cancellationToken)
-            ?? throw new InvalidOperationException("The session factory returned null.");
+        var generation = Interlocked.Read(ref _nextSessionGeneration);
+        var previousRecycleReasonCode = Volatile.Read(ref _pendingRecycleReasonCode);
+        var previousRecycleReason = DecodeRecycleReason(previousRecycleReasonCode);
+        TSession? createdSession;
+        if (_sessionFactory is IContextualExecutionSessionFactory<TSession> contextualFactory)
+        {
+            var context = CreateLifecycleContext(generation, previousRecycleReason);
+            createdSession = contextualFactory.CreateSession(context, cancellationToken);
+        }
+        else
+        {
+            createdSession = _sessionFactory.CreateSession(cancellationToken);
+        }
 
+        if (createdSession is null)
+        {
+            throw new InvalidOperationException("The session factory returned null.");
+        }
+
+        Interlocked.Exchange(ref _activeSessionGeneration, generation);
+        Volatile.Write(ref _activePreviousRecycleReasonCode, previousRecycleReasonCode);
+        Interlocked.Exchange(ref _nextSessionGeneration, generation + 1);
+        Volatile.Write(ref _pendingRecycleReasonCode, NoRecycleReason);
         Volatile.Write(ref _session, createdSession);
         Interlocked.Exchange(ref _operationsProcessed, 0);
 
@@ -848,7 +926,7 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
 #endif
     }
 
-    private void DisposeSession()
+    private void DisposeSession(SessionRecycleReason? recycleReason = null)
     {
         var session = Volatile.Read(ref _session);
         if (session is null)
@@ -856,10 +934,38 @@ public sealed class ExecutionWorker<TSession> : IExecutionWorker<TSession>
             return;
         }
 
+        var generation = Interlocked.Read(ref _activeSessionGeneration);
+        var previousRecycleReason = DecodeRecycleReason(Volatile.Read(ref _activePreviousRecycleReasonCode));
         Volatile.Write(ref _session, value: null);
         Interlocked.Exchange(ref _operationsProcessed, 0);
-        _sessionFactory.DisposeSession(session);
+        if (recycleReason.HasValue)
+        {
+            Volatile.Write(ref _pendingRecycleReasonCode, (int)recycleReason.Value);
+        }
+
+        if (_sessionFactory is IContextualExecutionSessionFactory<TSession> contextualFactory)
+        {
+            var context = CreateLifecycleContext(generation, previousRecycleReason);
+            contextualFactory.DisposeSession(session, context);
+        }
+        else
+        {
+            _sessionFactory.DisposeSession(session);
+        }
     }
+
+    private SessionLifecycleContext CreateLifecycleContext(
+        long generation,
+        SessionRecycleReason? previousRecycleReason) =>
+        new()
+        {
+            WorkerIndex = _workerIndex,
+            WorkerCount = _workerCount,
+            WorkerName = _options.Name,
+            SessionGeneration = generation,
+            PreviousRecycleReason = previousRecycleReason,
+            ManagedThreadId = Environment.CurrentManagedThreadId,
+        };
 
     private sealed class ExecutionWorkItem<TResult> : IExecutionWorkItem<TSession>
     {

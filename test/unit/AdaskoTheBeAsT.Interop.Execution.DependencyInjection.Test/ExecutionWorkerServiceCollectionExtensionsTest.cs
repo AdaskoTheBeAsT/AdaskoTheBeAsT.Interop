@@ -323,6 +323,107 @@ public sealed class ExecutionWorkerServiceCollectionExtensionsTest
         scheduler.SelectCount.Should().Be(2);
     }
 
+    [Fact]
+    public void AddExecutionWorkerPool_IndexedOverload_ShouldValidateArguments()
+    {
+        const IServiceCollection? nullServices = null;
+        var services = new ServiceCollection();
+
+        Action nullSvc = () => nullServices!.AddExecutionWorkerPool<DiTestSession>(
+            static (sp, _) => sp.GetRequiredService<IExecutionSessionFactory<DiTestSession>>());
+        Action nullResolver = () => services.AddExecutionWorkerPool<DiTestSession>(
+            sessionFactoryResolver: null!);
+
+        nullSvc.Should().Throw<ArgumentNullException>().WithParameterName(nameof(services));
+        nullResolver.Should().Throw<ArgumentNullException>().WithParameterName("sessionFactoryResolver");
+    }
+
+    [Fact]
+    public async Task AddExecutionWorker_And_Pool_ShouldResolveRegisteredContextualFactoryAsync()
+    {
+        var contextualFactory = new DiContextualSessionFactory();
+        var services = new ServiceCollection();
+        services.AddSingleton<IContextualExecutionSessionFactory<DiTestSession>>(contextualFactory);
+        services.AddExecutionWorker<DiTestSession>(options => options.Name = "ContextualWorker");
+        services.AddExecutionWorkerPool<DiTestSession>(options =>
+        {
+            options.WorkerCount = 2;
+            options.Name = "ContextualPool";
+        });
+
+        await using var provider = services.BuildServiceProvider();
+        var worker = provider.GetRequiredService<IExecutionWorker<DiTestSession>>();
+        var pool = provider.GetRequiredService<IExecutionWorkerPool<DiTestSession>>();
+
+        await worker.InitializeAsync(CancellationToken.None);
+        await pool.InitializeAsync(CancellationToken.None);
+
+        contextualFactory.ObservedWorkerCounts.Should().Contain(1);
+        contextualFactory.ObservedWorkerCounts.Should().Contain(2);
+    }
+
+    [Fact]
+    public async Task AddExecutionWorkerPool_IndexedOverload_ShouldPassWorkerSlotAndPropagateBeforeThreadStartAsync()
+    {
+        var resolvedSlots = new List<int>();
+        var beforeStartCount = 0;
+        var services = new ServiceCollection();
+        services.AddExecutionWorkerPool<DiTestSession>(
+            (_, workerIndex) =>
+            {
+                resolvedSlots.Add(workerIndex);
+                return new SlotTaggedDiFactory(workerIndex);
+            },
+            options =>
+            {
+                options.WorkerCount = 3;
+                options.SchedulingStrategy = SchedulingStrategy.RoundRobin;
+                options.BeforeThreadStart = () => Interlocked.Increment(ref beforeStartCount);
+            });
+
+        await using var provider = services.BuildServiceProvider();
+        var pool = provider.GetRequiredService<IExecutionWorkerPool<DiTestSession>>();
+        await pool.InitializeAsync(CancellationToken.None);
+
+        var observedIds = new int[3];
+        for (var i = 0; i < 3; i++)
+        {
+            observedIds[i] = await pool.ExecuteAsync(
+                static (s, _) => s.SessionId,
+                cancellationToken: CancellationToken.None);
+        }
+
+        resolvedSlots.Should().Equal(0, 1, 2);
+        beforeStartCount.Should().Be(1);
+        observedIds.Should().BeEquivalentTo([100, 101, 102]);
+    }
+
+    private sealed class DiContextualSessionFactory : ContextualExecutionSessionFactory<DiTestSession>
+    {
+        private int _nextId;
+
+        public System.Collections.Concurrent.ConcurrentBag<int> ObservedWorkerCounts { get; } = [];
+
+        public override DiTestSession CreateSession(SessionLifecycleContext context, CancellationToken cancellationToken)
+        {
+            ObservedWorkerCounts.Add(context.WorkerCount);
+            return new DiTestSession(Interlocked.Increment(ref _nextId));
+        }
+
+        public override void DisposeSession(DiTestSession session, SessionLifecycleContext context)
+        {
+        }
+    }
+
+    private sealed class SlotTaggedDiFactory(int slot) : IExecutionSessionFactory<DiTestSession>
+    {
+        public DiTestSession CreateSession(CancellationToken cancellationToken) => new(100 + slot);
+
+        public void DisposeSession(DiTestSession session)
+        {
+        }
+    }
+
     private sealed class RecordingFirstWorkerScheduler : IWorkerScheduler<DiTestSession>
     {
         private int _selectCount;

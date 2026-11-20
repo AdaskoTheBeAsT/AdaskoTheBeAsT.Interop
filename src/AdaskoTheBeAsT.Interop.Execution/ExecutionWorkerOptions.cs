@@ -107,19 +107,44 @@ public sealed class ExecutionWorkerOptions
 
     /// <summary>
     /// Gets or sets the maximum admitted requests waiting for startup or execution.
-    /// Zero means unlimited. Excess submissions fault with <see cref="InvalidOperationException"/>.
+    /// Zero means unlimited. Excess submissions fault with
+    /// <see cref="ExecutionAdmissionRejectedException"/> (an <see cref="InvalidOperationException"/>).
     /// </summary>
     public int QueueCapacity { get; set; }
 
     /// <summary>Gets or sets shutdown behavior. Running delegates are never forcibly interrupted.</summary>
     public ExecutionShutdownMode ShutdownMode { get; set; }
 
-    internal ExecutionWorkerOptions Snapshot() => new(
-        Name, UseStaThread, MaxOperationsPerSession, DisposeTimeout, Diagnostics)
-    {
-        QueueCapacity = QueueCapacity,
-        ShutdownMode = ShutdownMode,
-    };
+    /// <summary>
+    /// Gets or sets the maximum stack size, in bytes, to be used by the dedicated
+    /// worker <see cref="Thread"/>, or <c>0</c> (default) to use the default
+    /// maximum stack size specified in the executable header. Must not be negative.
+    /// </summary>
+    public int MaxStackSize { get; set; }
+
+    /// <summary>
+    /// Gets or sets an optional preparation callback invoked synchronously on
+    /// the caller before creating and starting the worker <see cref="Thread"/>
+    /// (including before configuring <see cref="System.Threading.ApartmentState.STA"/>).
+    /// </summary>
+    public Action? BeforeThreadStart { get; set; }
+
+    /// <summary>
+    /// Gets or sets an optional callback invoked once on the dedicated worker
+    /// <see cref="Thread"/> (after <see cref="System.Threading.ApartmentState.STA"/>
+    /// is active when <see cref="UseStaThread"/> is <see langword="true"/>) before
+    /// the first session is created.
+    /// </summary>
+    public Action? OnWorkerThreadStart { get; set; }
+
+    /// <summary>
+    /// Gets or sets an optional factory invoked once on the dedicated worker
+    /// <see cref="Thread"/> immediately after <see cref="OnWorkerThreadStart"/>
+    /// and before initial session creation. Any returned <see cref="IDisposable"/>
+    /// remains alive across session recyclings and is disposed once on the same
+    /// dedicated worker <see cref="Thread"/> during shutdown after final session disposal.
+    /// </summary>
+    public Func<IDisposable?>? CreateWorkerThreadScope { get; set; }
 
     // S3928 / MA0015 / S3236 disabled: Validate() validates the instance's
     // public properties (it has no parameters). The paramName argument is used
@@ -127,7 +152,12 @@ public sealed class ExecutionWorkerOptions
     // ArgumentOutOfRangeException convention applied by the positional ctor —
     // this keeps exception parity across both initialisation paths.
 #pragma warning disable S3928, MA0015, S3236
-    internal void Validate()
+
+    /// <summary>
+    /// Validates all configured option invariants.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">One of the option properties is out of range.</exception>
+    public void Validate()
     {
         if (MaxOperationsPerSession < 0)
         {
@@ -145,10 +175,26 @@ public sealed class ExecutionWorkerOptions
             throw new ArgumentOutOfRangeException(nameof(QueueCapacity));
         }
 
+        if (MaxStackSize < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(MaxStackSize));
+        }
+
         if (ShutdownMode != ExecutionShutdownMode.Drain && ShutdownMode != ExecutionShutdownMode.CancelPending)
         {
             throw new ArgumentOutOfRangeException(nameof(ShutdownMode));
         }
     }
 #pragma warning restore S3928, MA0015, S3236
+
+    internal ExecutionWorkerOptions Snapshot() => new(
+        Name, UseStaThread, MaxOperationsPerSession, DisposeTimeout, Diagnostics)
+    {
+        QueueCapacity = QueueCapacity,
+        ShutdownMode = ShutdownMode,
+        MaxStackSize = MaxStackSize,
+        BeforeThreadStart = BeforeThreadStart,
+        OnWorkerThreadStart = OnWorkerThreadStart,
+        CreateWorkerThreadScope = CreateWorkerThreadScope,
+    };
 }

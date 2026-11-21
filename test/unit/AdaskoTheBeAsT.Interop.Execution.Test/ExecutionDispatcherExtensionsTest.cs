@@ -95,10 +95,10 @@ public sealed class ExecutionDispatcherExtensionsTest
         var canceledEx = await canceledTask.Should().ThrowAsync<OperationCanceledException>();
         canceledEx.Which.CancellationToken.Should().Be(preCanceled.Token);
 
-        Func<Task<int>> zeroWorker = () => ExecuteZeroHelperAsync(worker, _ => executed = true, TimeSpan.Zero);
-        void MarkExecuted(DeadlineSession session, CancellationToken cancellationToken) => executed = true;
-        Func<Task> zeroVoid = () => worker.ExecuteAsync(MarkExecuted, TimeSpan.Zero, TestToken);
-        Func<Task> zeroPool = async () => await pool.ExecuteValueAsync(MarkExecuted, TimeSpan.Zero, TestToken);
+        void MarkExecuted() => executed = true;
+        Func<Task<int>> zeroWorker = () => ExecuteZeroHelperAsync(worker, _ => MarkExecuted(), TimeSpan.Zero);
+        Func<Task> zeroVoid = () => worker.ExecuteAsync((_, _) => MarkExecuted(), TimeSpan.Zero, TestToken);
+        Func<Task> zeroPool = async () => await pool.ExecuteValueAsync((_, _) => MarkExecuted(), TimeSpan.Zero, TestToken);
         Func<Task<int>> zeroPoolVal = async () => await pool.ExecuteValueAsync(static (s, _) => s.Id, TimeSpan.Zero, TestToken);
 
         await zeroWorker.Should().ThrowAsync<TimeoutException>();
@@ -188,10 +188,10 @@ public sealed class ExecutionDispatcherExtensionsTest
         {
             firstEntered.Wait(GateTimeout, TestToken).Should().BeTrue();
 
-            void MarkExpiredRan(DeadlineSession session, CancellationToken cancellationToken) => Interlocked.Increment(ref expiredRan);
+            void MarkExpiredRan() => Interlocked.Increment(ref expiredRan);
             Func<Task> expiredCall = pooledValueTask
-                ? async () => await worker.ExecuteValueAsync(MarkExpiredRan, TimeSpan.FromMilliseconds(40), TestToken)
-                : () => worker.ExecuteAsync(MarkExpiredRan, TimeSpan.FromMilliseconds(40), TestToken);
+                ? async () => await worker.ExecuteValueAsync((_, _) => MarkExpiredRan(), TimeSpan.FromMilliseconds(40), TestToken)
+                : () => worker.ExecuteAsync((_, _) => MarkExpiredRan(), TimeSpan.FromMilliseconds(40), TestToken);
 
             await expiredCall.Should().ThrowAsync<TimeoutException>();
         }

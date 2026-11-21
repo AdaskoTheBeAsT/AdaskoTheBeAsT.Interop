@@ -217,22 +217,20 @@ public sealed class ExecutionDispatcherAndDelegateRegistrationTest
 
             var workerValidators = badWorkerProvider.GetServices<IValidateOptions<ExecutionWorkerOptions>>().ToArray();
             workerValidators.Should().ContainSingle();
-            workerValidators[0].Validate(null, null!).Failed.Should().BeTrue();
+            workerValidators[0].Validate(name: null, options: null!).Failed.Should().BeTrue();
         }
 
         var badPoolServices = new ServiceCollection();
         badPoolServices.AddSingleton<IExecutionSessionFactory<DiTestSession>, DiTestSessionFactory>();
         badPoolServices.AddExecutionWorkerPool<DiTestSession>((_, options) => options.MaxStackSize = -1);
 
-        await using (var badPoolProvider = badPoolServices.BuildServiceProvider())
-        {
-            Action resolvePool = () => _ = badPoolProvider.GetRequiredService<IExecutionWorkerPool<DiTestSession>>();
-            resolvePool.Should().Throw<OptionsValidationException>();
+        await using var badPoolProvider = badPoolServices.BuildServiceProvider();
+        Action resolvePool = () => _ = badPoolProvider.GetRequiredService<IExecutionWorkerPool<DiTestSession>>();
+        resolvePool.Should().Throw<OptionsValidationException>();
 
-            var poolValidators = badPoolProvider.GetServices<IValidateOptions<ExecutionWorkerPoolOptions>>().ToArray();
-            poolValidators.Should().ContainSingle();
-            poolValidators[0].Validate(null, null!).Failed.Should().BeTrue();
-        }
+        var poolValidators = badPoolProvider.GetServices<IValidateOptions<ExecutionWorkerPoolOptions>>().ToArray();
+        poolValidators.Should().ContainSingle();
+        poolValidators[0].Validate(name: null, options: null!).Failed.Should().BeTrue();
     }
 
     private sealed class SeedOffset(int baseValue)

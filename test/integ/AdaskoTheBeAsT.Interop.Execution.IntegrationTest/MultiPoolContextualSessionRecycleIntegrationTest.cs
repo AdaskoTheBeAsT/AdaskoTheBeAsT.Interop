@@ -19,17 +19,17 @@ public sealed class MultiPoolContextualSessionRecycleIntegrationTest
             new ExecutionWorkerPoolOptions(
                 workerCount: 4,
                 name: "StaCalcPool",
-                schedulingStrategy: SchedulingStrategy.RoundRobin,
                 useStaThread: true,
-                maxOperationsPerSession: 2)))
+                maxOperationsPerSession: 2,
+                schedulingStrategy: SchedulingStrategy.RoundRobin)))
         await using (var mtaPool = new ExecutionWorkerPool<IntegrationSession>(
             mtaFactory,
             new ExecutionWorkerPoolOptions(
                 workerCount: 3,
                 name: "MtaCalcPool",
-                schedulingStrategy: SchedulingStrategy.RoundRobin,
                 useStaThread: false,
-                maxOperationsPerSession: 2)))
+                maxOperationsPerSession: 2,
+                schedulingStrategy: SchedulingStrategy.RoundRobin)))
         {
             await Task.WhenAll(
                 staPool.InitializeAsync(TestCt.Current),
@@ -45,7 +45,7 @@ public sealed class MultiPoolContextualSessionRecycleIntegrationTest
     }
 
     private static async Task DriveRecyclesAcrossAllSlotsAsync(
-        IExecutionWorkerPool<IntegrationSession> pool,
+        ExecutionWorkerPool<IntegrationSession> pool,
         int workerCount)
     {
         // With RoundRobin and MaxOperationsPerSession = 2:
@@ -96,8 +96,8 @@ public sealed class MultiPoolContextualSessionRecycleIntegrationTest
             var created = createdBySlot[slot];
             var disposed = disposedBySlot[slot];
 
-            created.Length.Should().BeGreaterThanOrEqualTo(MinRecyclesPerSlot + 1);
-            disposed.Length.Should().Be(created.Length);
+            created.Should().HaveCountGreaterThanOrEqualTo(MinRecyclesPerSlot + 1);
+            disposed.Should().HaveCount(created.Length);
 
             var expectedThreadId = created[0].Context.ManagedThreadId;
             created[0].Context.PreviousRecycleReason.Should().BeNull();

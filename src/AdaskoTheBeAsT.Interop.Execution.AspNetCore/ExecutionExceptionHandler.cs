@@ -45,11 +45,11 @@ public sealed class ExecutionExceptionHandler : IExceptionHandler
 
         if (!ExecutionExceptionMapper.TryMap(
                 exception,
-                httpContext.RequestAborted,
                 _options,
                 out var statusCode,
                 out var problemTitle,
-                out var retryAfterSeconds))
+                out var retryAfterSeconds,
+                httpContext.RequestAborted))
         {
             return false;
         }
@@ -83,7 +83,7 @@ public sealed class ExecutionExceptionHandler : IExceptionHandler
             }
         }
 
-        await TypedResults.Problem(title: problemTitle, statusCode: statusCode)
+        await TypedResults.Problem(statusCode: statusCode, title: problemTitle)
             .ExecuteAsync(httpContext)
             .ConfigureAwait(false);
         return true;

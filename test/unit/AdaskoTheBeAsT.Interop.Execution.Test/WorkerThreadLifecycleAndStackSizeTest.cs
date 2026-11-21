@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using AwesomeAssertions;
 using Xunit;
 
@@ -61,13 +62,17 @@ public sealed class WorkerThreadLifecycleAndStackSizeTest
         var factory = new DelegateExecutionSessionFactory<object>(
             createSession: (ctx, _) =>
             {
-                events.Enqueue(($"create:{ctx.SessionGeneration}", Environment.CurrentManagedThreadId, Thread.CurrentThread.GetApartmentState()));
+                events.Enqueue((
+                    $"create:{ctx.SessionGeneration.ToString(CultureInfo.InvariantCulture)}",
+                    Environment.CurrentManagedThreadId,
+                    Thread.CurrentThread.GetApartmentState()));
                 return new object();
             },
             disposeSession: (_, ctx) =>
-            {
-                events.Enqueue(($"dispose:{ctx.SessionGeneration}", Environment.CurrentManagedThreadId, Thread.CurrentThread.GetApartmentState()));
-            });
+                events.Enqueue((
+                    $"dispose:{ctx.SessionGeneration.ToString(CultureInfo.InvariantCulture)}",
+                    Environment.CurrentManagedThreadId,
+                    Thread.CurrentThread.GetApartmentState())));
 
         var options = CreateLifecycleWorkerOptions(events);
         await using (var worker = new ExecutionWorker<object>(factory, options))
@@ -77,7 +82,7 @@ public sealed class WorkerThreadLifecycleAndStackSizeTest
             _ = await worker.ExecuteAsync(static (_, _) => 2, cancellationToken: TestToken);
         }
 
-        AssertLifecycleEventOrderAndThreadAffinity(events.ToArray(), callerThreadId);
+        AssertLifecycleEventOrderAndThreadAffinity([.. events], callerThreadId);
     }
 
     [Fact]
@@ -229,18 +234,18 @@ public sealed class WorkerThreadLifecycleAndStackSizeTest
         recorded[0].ThreadId.Should().Be(callerThreadId);
         var workerThreadId = recorded[1].ThreadId;
         workerThreadId.Should().NotBe(callerThreadId);
-        foreach (var entry in recorded.Skip(1))
+        foreach (var (_, threadId, apartment) in recorded.Skip(1))
         {
-            entry.ThreadId.Should().Be(workerThreadId);
+            threadId.Should().Be(workerThreadId);
 #if NET5_0_OR_GREATER
             if (OperatingSystem.IsWindows())
             {
-                entry.Apartment.Should().Be(ApartmentState.STA);
+                apartment.Should().Be(ApartmentState.STA);
             }
 #else
             if (Environment.OSVersion.Platform == PlatformID.Win32NT)
             {
-                entry.Apartment.Should().Be(ApartmentState.STA);
+                apartment.Should().Be(ApartmentState.STA);
             }
 #endif
         }

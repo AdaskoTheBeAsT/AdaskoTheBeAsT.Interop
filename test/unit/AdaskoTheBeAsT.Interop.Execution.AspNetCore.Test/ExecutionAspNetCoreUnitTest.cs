@@ -53,7 +53,7 @@ public sealed class ExecutionAspNetCoreUnitTest
 
         var validators = host.Services.GetServices<IValidateOptions<ExecutionAspNetCoreOptions>>().ToArray();
         validators.Should().ContainSingle();
-        validators[0].Validate(null, null!).Failed.Should().BeTrue();
+        validators[0].Validate(name: null, options: null!).Failed.Should().BeTrue();
     }
 
     [Fact]
@@ -144,13 +144,13 @@ public sealed class ExecutionAspNetCoreUnitTest
         abortedHttp.Response.StatusCode.Should().Be(StatusCodes.Status499ClientClosedRequest);
 
         var falsePds = new Mock<IProblemDetailsService>(MockBehavior.Strict);
-        falsePds.Setup(static s => s.TryWriteAsync(It.IsAny<ProblemDetailsContext>())).ReturnsAsync(false);
+        falsePds.Setup(static s => s.TryWriteAsync(It.IsAny<ProblemDetailsContext>())).ReturnsAsync(value: false);
 
         await using var fallbackServices = new ServiceCollection()
             .AddLogging()
             .AddExecutionAspNetCoreJson()
             .BuildServiceProvider();
-        using var bodyStream = new MemoryStream();
+        await using var bodyStream = new MemoryStream();
 
         var handlerWithFalsePds = new ExecutionExceptionHandler(
             Options.Create(new ExecutionAspNetCoreOptions { RetryAfter = TimeSpan.FromMilliseconds(100) }),

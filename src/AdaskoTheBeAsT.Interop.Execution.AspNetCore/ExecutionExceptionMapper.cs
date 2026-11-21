@@ -8,11 +8,11 @@ internal static class ExecutionExceptionMapper
 {
     public static bool TryMap(
         Exception exception,
-        CancellationToken requestAborted,
         ExecutionAspNetCoreOptions options,
         out int statusCode,
         out string? problemTitle,
-        out string? retryAfterSeconds)
+        out string? retryAfterSeconds,
+        CancellationToken requestAborted)
     {
         switch (exception)
         {

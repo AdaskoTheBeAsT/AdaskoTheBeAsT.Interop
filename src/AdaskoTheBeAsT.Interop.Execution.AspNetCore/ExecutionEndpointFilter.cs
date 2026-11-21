@@ -40,11 +40,11 @@ public sealed class ExecutionEndpointFilter : IEndpointFilter
             var httpContext = context.HttpContext;
             if (!ExecutionExceptionMapper.TryMap(
                     exception,
-                    httpContext.RequestAborted,
                     _options,
                     out var statusCode,
                     out var problemTitle,
-                    out var retryAfterSeconds))
+                    out var retryAfterSeconds,
+                    httpContext.RequestAborted))
             {
                 throw;
             }
@@ -59,7 +59,7 @@ public sealed class ExecutionEndpointFilter : IEndpointFilter
                 return TypedResults.StatusCode(statusCode);
             }
 
-            return TypedResults.Problem(title: problemTitle, statusCode: statusCode);
+            return TypedResults.Problem(statusCode: statusCode, title: problemTitle);
         }
     }
 }

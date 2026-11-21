@@ -62,9 +62,7 @@ public sealed class BeforeThreadStartAndSnapshotTest
         var callbackCount = 0;
 
         var factory = new DelegateSessionFactory(onCreate: () =>
-        {
-            events.Enqueue(("create", Environment.CurrentManagedThreadId));
-        });
+            events.Enqueue(("create", Environment.CurrentManagedThreadId)));
         var options = new ExecutionWorkerOptions(name: "OrderedWorker", useStaThread: true)
         {
             BeforeThreadStart = () =>

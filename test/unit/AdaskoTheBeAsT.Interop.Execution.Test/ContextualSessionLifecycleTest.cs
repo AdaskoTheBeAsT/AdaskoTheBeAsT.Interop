@@ -188,8 +188,8 @@ public sealed class ContextualSessionLifecycleTest
             new ExecutionWorkerPoolOptions(
                 workerCount: 3,
                 name: "EnginePool",
-                schedulingStrategy: SchedulingStrategy.RoundRobin,
-                maxOperationsPerSession: 1)))
+                maxOperationsPerSession: 1,
+                schedulingStrategy: SchedulingStrategy.RoundRobin)))
         {
             await pool.InitializeAsync(TestToken);
             for (var i = 0; i < 6; i++)

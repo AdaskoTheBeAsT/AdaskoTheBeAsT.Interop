@@ -86,7 +86,7 @@ public sealed class ExecutionHealthChecksTest
 
         var beforeStart = await check.CheckHealthAsync(context: null!, TestToken);
         beforeStart.Status.Should().Be(HealthStatus.Unhealthy);
-        beforeStart.Data["isInitialized"].Should().Be(false);
+        beforeStart.Data["isInitialized"].Should().Be(expected: false);
         beforeStart.Data["name"].Should().Be("CalcWorker");
 
         var initTask = worker.InitializeAsync(TestToken);
@@ -134,7 +134,7 @@ public sealed class ExecutionHealthChecksTest
 
             var degraded = await check.CheckHealthAsync(new HealthCheckContext(), TestToken);
             degraded.Status.Should().Be(HealthStatus.Degraded);
-            degraded.Data.ContainsKey("name").Should().BeFalse();
+            degraded.Data.Should().NotContainKey("name");
         }
         finally
         {
@@ -236,7 +236,7 @@ public sealed class ExecutionHealthChecksTest
         await pool.DisposeAsync();
         var disposed = await check.CheckHealthAsync(new HealthCheckContext(), TestToken);
         disposed.Status.Should().Be(HealthStatus.Unhealthy);
-        disposed.Data["isDisposed"].Should().Be(true);
+        disposed.Data["isDisposed"].Should().Be(expected: true);
     }
 
     [Fact]
@@ -296,7 +296,7 @@ public sealed class ExecutionHealthChecksTest
 
         result.Status.Should().Be(HealthStatus.Unhealthy);
         result.Exception.Should().BeNull();
-        result.Data.ContainsKey("name").Should().BeFalse();
+        result.Data.Should().NotContainKey("name");
     }
 
     private static async Task VerifyPoolQueueDepthDegradedAsync(
@@ -331,7 +331,7 @@ public sealed class ExecutionHealthChecksTest
         await Task.WhenAll(blocker1, blocker2, queued);
     }
 
-    private static async Task TriggerWorkerRecycleFaultAsync(IExecutionWorker<HostedTestSession> worker)
+    private static async Task TriggerWorkerRecycleFaultAsync(ExecutionWorker<HostedTestSession> worker)
     {
         Func<Task> fault = () => worker.ExecuteAsync(
             static (_, _) => throw new InvalidOperationException("op-fault"),
@@ -341,7 +341,7 @@ public sealed class ExecutionHealthChecksTest
         assertion.Which.Message.Should().Be("op-fault");
     }
 
-    private static async Task TriggerPoolRecycleFaultAsync(IExecutionWorkerPool<HostedTestSession> pool)
+    private static async Task TriggerPoolRecycleFaultAsync(ExecutionWorkerPool<HostedTestSession> pool)
     {
         Func<Task> fault = () => pool.ExecuteAsync(
             static (_, _) => throw new InvalidOperationException("op-fault"),

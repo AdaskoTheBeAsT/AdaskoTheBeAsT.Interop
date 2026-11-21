@@ -20,8 +20,8 @@ public sealed class ExecutionDispatcherExtensionsTest
 
         Action nullVoidTask = () => _ = nullDispatcher!.ExecuteAsync(static (_, _) => { }, GenerousTimeout, CancellationToken.None);
         Action nullValueTask = () => _ = nullDispatcher!.ExecuteAsync(static (_, _) => 1, GenerousTimeout, CancellationToken.None);
-        Action nullPooledVoid = () => _ = nullDispatcher!.ExecuteValueAsync(static (_, _) => { }, GenerousTimeout, CancellationToken.None);
-        Action nullPooledVal = () => _ = nullDispatcher!.ExecuteValueAsync(static (_, _) => 1, GenerousTimeout, CancellationToken.None);
+        Action nullPooledVoid = () => _ = ConsumeAsync(nullDispatcher!.ExecuteValueAsync(static (_, _) => { }, GenerousTimeout, CancellationToken.None));
+        Action nullPooledVal = () => _ = nullDispatcher!.ExecuteValueAsync(static (_, _) => 1, GenerousTimeout, CancellationToken.None).AsTask();
 
         nullVoidTask.Should().Throw<ArgumentNullException>().WithParameterName(nameof(dispatcher));
         nullValueTask.Should().Throw<ArgumentNullException>().WithParameterName(nameof(dispatcher));
@@ -30,8 +30,8 @@ public sealed class ExecutionDispatcherExtensionsTest
 
         Action nullAct1 = () => _ = dispatcher.ExecuteAsync((Action<DeadlineSession, CancellationToken>)null!, GenerousTimeout, CancellationToken.None);
         Action nullAct2 = () => _ = dispatcher.ExecuteAsync<DeadlineSession, int>(null!, GenerousTimeout, CancellationToken.None);
-        Action nullAct3 = () => _ = dispatcher.ExecuteValueAsync((Action<DeadlineSession, CancellationToken>)null!, GenerousTimeout, CancellationToken.None);
-        Action nullAct4 = () => _ = dispatcher.ExecuteValueAsync<DeadlineSession, int>(null!, GenerousTimeout, CancellationToken.None);
+        Action nullAct3 = () => _ = ConsumeAsync(dispatcher.ExecuteValueAsync((Action<DeadlineSession, CancellationToken>)null!, GenerousTimeout, CancellationToken.None));
+        Action nullAct4 = () => _ = dispatcher.ExecuteValueAsync<DeadlineSession, int>(null!, GenerousTimeout, CancellationToken.None).AsTask();
 
         nullAct1.Should().Throw<ArgumentNullException>().WithParameterName("action");
         nullAct2.Should().Throw<ArgumentNullException>().WithParameterName("action");
@@ -50,8 +50,8 @@ public sealed class ExecutionDispatcherExtensionsTest
 
         Action call1 = () => _ = dispatcher.ExecuteAsync(static (_, _) => { }, invalid, CancellationToken.None);
         Action call2 = () => _ = dispatcher.ExecuteAsync(static (_, _) => 1, invalid, CancellationToken.None);
-        Action call3 = () => _ = dispatcher.ExecuteValueAsync(static (_, _) => { }, invalid, CancellationToken.None);
-        Action call4 = () => _ = dispatcher.ExecuteValueAsync(static (_, _) => 1, invalid, CancellationToken.None);
+        Action call3 = () => _ = ConsumeAsync(dispatcher.ExecuteValueAsync(static (_, _) => { }, invalid, CancellationToken.None));
+        Action call4 = () => _ = dispatcher.ExecuteValueAsync(static (_, _) => 1, invalid, CancellationToken.None).AsTask();
 
         call1.Should().Throw<ArgumentOutOfRangeException>().WithParameterName("timeout");
         call2.Should().Throw<ArgumentOutOfRangeException>().WithParameterName("timeout");
@@ -95,9 +95,10 @@ public sealed class ExecutionDispatcherExtensionsTest
         var canceledEx = await canceledTask.Should().ThrowAsync<OperationCanceledException>();
         canceledEx.Which.CancellationToken.Should().Be(preCanceled.Token);
 
-        Func<Task<int>> zeroWorker = () => ExecuteZeroHelperAsync(worker, _ => { executed = true; }, TimeSpan.Zero);
-        Func<Task> zeroVoid = () => worker.ExecuteAsync((_, _) => { executed = true; }, TimeSpan.Zero, TestToken);
-        Func<Task> zeroPool = async () => await pool.ExecuteValueAsync((_, _) => { executed = true; }, TimeSpan.Zero, TestToken);
+        Func<Task<int>> zeroWorker = () => ExecuteZeroHelperAsync(worker, _ => executed = true, TimeSpan.Zero);
+        void MarkExecuted(DeadlineSession session, CancellationToken cancellationToken) => executed = true;
+        Func<Task> zeroVoid = () => worker.ExecuteAsync(MarkExecuted, TimeSpan.Zero, TestToken);
+        Func<Task> zeroPool = async () => await pool.ExecuteValueAsync(MarkExecuted, TimeSpan.Zero, TestToken);
         Func<Task<int>> zeroPoolVal = async () => await pool.ExecuteValueAsync(static (s, _) => s.Id, TimeSpan.Zero, TestToken);
 
         await zeroWorker.Should().ThrowAsync<TimeoutException>();
@@ -187,15 +188,10 @@ public sealed class ExecutionDispatcherExtensionsTest
         {
             firstEntered.Wait(GateTimeout, TestToken).Should().BeTrue();
 
+            void MarkExpiredRan(DeadlineSession session, CancellationToken cancellationToken) => Interlocked.Increment(ref expiredRan);
             Func<Task> expiredCall = pooledValueTask
-                ? async () => await worker.ExecuteValueAsync(
-                    (_, _) => { Interlocked.Increment(ref expiredRan); },
-                    TimeSpan.FromMilliseconds(40),
-                    TestToken)
-                : () => worker.ExecuteAsync(
-                    (_, _) => { Interlocked.Increment(ref expiredRan); },
-                    TimeSpan.FromMilliseconds(40),
-                    TestToken);
+                ? async () => await worker.ExecuteValueAsync(MarkExpiredRan, TimeSpan.FromMilliseconds(40), TestToken)
+                : () => worker.ExecuteAsync(MarkExpiredRan, TimeSpan.FromMilliseconds(40), TestToken);
 
             await expiredCall.Should().ThrowAsync<TimeoutException>();
         }
@@ -412,6 +408,8 @@ public sealed class ExecutionDispatcherExtensionsTest
         }
     }
 
+    private static Task ConsumeAsync(ValueTask task) => task.AsTask();
+
     private static Task<int> ExecuteZeroHelperAsync(
         IExecutionDispatcher<DeadlineSession> dispatcher,
         Action<DeadlineSession>? callback,
@@ -484,10 +482,14 @@ public sealed class ExecutionDispatcherExtensionsTest
             ExecutionRequestOptions? options = null,
             CancellationToken cancellationToken = default)
         {
+#if NET8_0_OR_GREATER
+            ArgumentNullException.ThrowIfNull(action);
+#else
             if (action is null)
             {
                 throw new ArgumentNullException(nameof(action));
             }
+#endif
 
             if (ThrowSynchronouslyOnSubmit)
             {
@@ -510,10 +512,14 @@ public sealed class ExecutionDispatcherExtensionsTest
             ExecutionRequestOptions? options = null,
             CancellationToken cancellationToken = default)
         {
+#if NET8_0_OR_GREATER
+            ArgumentNullException.ThrowIfNull(action);
+#else
             if (action is null)
             {
                 throw new ArgumentNullException(nameof(action));
             }
+#endif
 
             if (ThrowSynchronouslyOnSubmit)
             {
@@ -533,52 +539,13 @@ public sealed class ExecutionDispatcherExtensionsTest
         public ValueTask ExecuteValueAsync(
             Action<DeadlineSession, CancellationToken> action,
             ExecutionRequestOptions? options = null,
-            CancellationToken cancellationToken = default)
-        {
-            if (action is null)
-            {
-                throw new ArgumentNullException(nameof(action));
-            }
-
-            if (ThrowSynchronouslyOnSubmit)
-            {
-                throw new InvalidOperationException("submit-rejected");
-            }
-
-            try
-            {
-                action(_session, cancellationToken);
-                return default;
-            }
-            catch (Exception ex)
-            {
-                return new ValueTask(Task.FromException(ex));
-            }
-        }
+            CancellationToken cancellationToken = default) =>
+            new(ExecuteAsync(action, options, cancellationToken));
 
         public ValueTask<TResult> ExecuteValueAsync<TResult>(
             Func<DeadlineSession, CancellationToken, TResult> action,
             ExecutionRequestOptions? options = null,
-            CancellationToken cancellationToken = default)
-        {
-            if (action is null)
-            {
-                throw new ArgumentNullException(nameof(action));
-            }
-
-            if (ThrowSynchronouslyOnSubmit)
-            {
-                throw new InvalidOperationException("submit-rejected");
-            }
-
-            try
-            {
-                return new ValueTask<TResult>(action(_session, cancellationToken));
-            }
-            catch (Exception ex)
-            {
-                return new ValueTask<TResult>(Task.FromException<TResult>(ex));
-            }
-        }
+            CancellationToken cancellationToken = default) =>
+            new(ExecuteAsync(action, options, cancellationToken));
     }
 }

@@ -101,12 +101,37 @@ public sealed class ExecutionWorkerPoolOptions
     /// <summary>Gets or sets shutdown behavior for requests waiting on each worker.</summary>
     public ExecutionShutdownMode ShutdownMode { get; set; }
 
-    internal ExecutionWorkerPoolOptions Snapshot() => new(
-        WorkerCount, Name, UseStaThread, MaxOperationsPerSession, DisposeTimeout, SchedulingStrategy, Diagnostics)
-    {
-        QueueCapacity = QueueCapacity,
-        ShutdownMode = ShutdownMode,
-    };
+    /// <summary>
+    /// Gets or sets the maximum stack size, in bytes, propagated to every worker
+    /// <see cref="Thread"/> in the pool, or <c>0</c> (default) to use the default
+    /// maximum stack size specified in the executable header. Must not be negative.
+    /// </summary>
+    public int MaxStackSize { get; set; }
+
+    /// <summary>
+    /// Gets or sets an optional preparation callback invoked synchronously on
+    /// the caller once for the pool before creating and starting any worker
+    /// <see cref="Thread"/> (including before configuring
+    /// <see cref="System.Threading.ApartmentState.STA"/>).
+    /// </summary>
+    public Action? BeforeThreadStart { get; set; }
+
+    /// <summary>
+    /// Gets or sets an optional callback invoked once on each dedicated worker
+    /// <see cref="Thread"/> (receiving the worker index <c>0..WorkerCount - 1</c>)
+    /// before that worker's first session is created.
+    /// </summary>
+    public Action<int>? OnWorkerThreadStart { get; set; }
+
+    /// <summary>
+    /// Gets or sets an optional factory invoked once on each dedicated worker
+    /// <see cref="Thread"/> (receiving the worker index <c>0..WorkerCount - 1</c>)
+    /// immediately after <see cref="OnWorkerThreadStart"/> and before initial session
+    /// creation. Any returned <see cref="IDisposable"/> remains alive across session
+    /// recyclings and is disposed once on that same dedicated worker <see cref="Thread"/>
+    /// during shutdown after final session disposal.
+    /// </summary>
+    public Func<int, IDisposable?>? CreateWorkerThreadScope { get; set; }
 
     // S3928 / MA0015 / S3236 disabled: Validate() validates the instance's
     // public properties (it has no parameters). The paramName argument surfaces
@@ -114,7 +139,12 @@ public sealed class ExecutionWorkerPoolOptions
     // convention applied by the positional ctor so both initialisation paths
     // behave identically.
 #pragma warning disable S3928, MA0015, S3236
-    internal void Validate()
+
+    /// <summary>
+    /// Validates all configured pool option invariants.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">One of the option properties is out of range.</exception>
+    public void Validate()
     {
         if (WorkerCount <= 0)
         {
@@ -137,6 +167,11 @@ public sealed class ExecutionWorkerPoolOptions
             throw new ArgumentOutOfRangeException(nameof(QueueCapacity));
         }
 
+        if (MaxStackSize < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(MaxStackSize));
+        }
+
         if (ShutdownMode != ExecutionShutdownMode.Drain && ShutdownMode != ExecutionShutdownMode.CancelPending)
         {
             throw new ArgumentOutOfRangeException(nameof(ShutdownMode));
@@ -152,4 +187,15 @@ public sealed class ExecutionWorkerPoolOptions
         }
     }
 #pragma warning restore S3928, MA0015, S3236
+
+    internal ExecutionWorkerPoolOptions Snapshot() => new(
+        WorkerCount, Name, UseStaThread, MaxOperationsPerSession, DisposeTimeout, SchedulingStrategy, Diagnostics)
+    {
+        QueueCapacity = QueueCapacity,
+        ShutdownMode = ShutdownMode,
+        MaxStackSize = MaxStackSize,
+        BeforeThreadStart = BeforeThreadStart,
+        OnWorkerThreadStart = OnWorkerThreadStart,
+        CreateWorkerThreadScope = CreateWorkerThreadScope,
+    };
 }

@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Runtime.ExceptionServices;
 
 namespace AdaskoTheBeAsT.Interop.Execution;
 
@@ -209,13 +210,14 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
     /// <inheritdoc />
     public ExecutionWorkerPoolSnapshot GetSnapshot()
     {
+        var isDisposed = Volatile.Read(ref _disposeState) != 0;
         var workerSnapshots = new ExecutionWorkerSnapshot[_workers.Length];
         for (var workerIndex = 0; workerIndex < _workers.Length; workerIndex++)
         {
             workerSnapshots[workerIndex] = _workers[workerIndex].GetSnapshot();
         }
 
-        return new ExecutionWorkerPoolSnapshot(_options.Name, workerSnapshots);
+        return new ExecutionWorkerPoolSnapshot(_options.Name, workerSnapshots, isDisposed);
     }
 
     /// <inheritdoc />
@@ -405,6 +407,11 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
 #pragma warning restore VSTHRD002
     }
 
+    internal void ValidateCanSubmit()
+    {
+        SelectWorker().ValidateCanSubmit();
+    }
+
     internal void MarkDisposedForTesting()
     {
         Interlocked.Exchange(ref _disposeState, 1);
@@ -438,16 +445,20 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
     {
         var factoryProvider = sessionFactoryFactory;
         var workers = new ExecutionWorker<TSession>[options.WorkerCount];
+        Action? beforeThreadStart = options.BeforeThreadStart is null
+            ? null
+            : new BeforeThreadStartGate(options.BeforeThreadStart).EnsureExecuted;
 
         var created = 0;
         try
         {
             for (; created < workers.Length; created++)
             {
-                var sessionFactory = factoryProvider(created)
+                var workerIndex = created;
+                var sessionFactory = factoryProvider(workerIndex)
                     ?? throw new InvalidOperationException("The session factory factory returned null.");
                 var workerOptions = new ExecutionWorkerOptions(
-                    CreateWorkerName(options.Name, created),
+                    CreateWorkerName(options.Name, workerIndex),
                     options.UseStaThread,
                     options.MaxOperationsPerSession,
                     options.DisposeTimeout,
@@ -455,8 +466,20 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
                 {
                     QueueCapacity = options.QueueCapacity,
                     ShutdownMode = options.ShutdownMode,
+                    MaxStackSize = options.MaxStackSize,
+                    BeforeThreadStart = beforeThreadStart,
+                    OnWorkerThreadStart = options.OnWorkerThreadStart is { } onStart
+                        ? () => onStart(workerIndex)
+                        : null,
+                    CreateWorkerThreadScope = options.CreateWorkerThreadScope is { } createScope
+                        ? () => createScope(workerIndex)
+                        : null,
                 };
-                workers[created] = new ExecutionWorker<TSession>(sessionFactory, workerOptions);
+                workers[workerIndex] = new ExecutionWorker<TSession>(
+                    sessionFactory,
+                    workerOptions,
+                    workerIndex,
+                    workers.Length);
             }
         }
         catch
@@ -590,6 +613,42 @@ public sealed class ExecutionWorkerPool<TSession> : IExecutionWorkerPool<TSessio
         {
             var typedSubscriber = (EventHandler<WorkerFaultedEventArgs>)subscriber;
             ExecutionHelpers.TryIgnore(() => typedSubscriber(this, e));
+        }
+    }
+
+    private sealed class BeforeThreadStartGate(Action callback)
+    {
+        private readonly Action _callback = callback;
+#if NET9_0_OR_GREATER
+        private readonly Lock _gate = new();
+#else
+        private readonly object _gate = new();
+#endif
+        private ExceptionDispatchInfo? _failure;
+        private bool _completed;
+
+        public void EnsureExecuted()
+        {
+            lock (_gate)
+            {
+                if (_completed)
+                {
+                    _failure?.Throw();
+                    return;
+                }
+
+                try
+                {
+                    _callback();
+                    _completed = true;
+                }
+                catch (Exception exception)
+                {
+                    _failure = ExceptionDispatchInfo.Capture(exception);
+                    _completed = true;
+                    throw;
+                }
+            }
         }
     }
 }

@@ -5,6 +5,175 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0]
+
+Upgrades the solution to .NET 11 (`11.0.100`) and C# 14, updates the supported
+target framework matrix to `net11.0`, `net10.0`, `net481`, `net48`, and
+`net472`, introduces the companion `AdaskoTheBeAsT.Interop.Execution.AspNetCore`
+package (`net11.0;net10.0`), and adds contextual session lifecycle metadata,
+delegate session factories, worker-indexed and `IServiceProvider`-aware DI /
+Hosting registration with `IExecutionDispatcher<TSession>` forwarding and
+`ValidateOnStart`, typed admission-rejection exceptions, dedicated worker-thread
+stack sizing and thread-affine lifecycle scopes, execution deadline extensions,
+and Hosting `IHealthCheck` support.
+
+**Breaking change:** `.NET 8` (`net8.0`) and `.NET 9` (`net9.0`) support has
+been removed, `.NET 11` (`net11.0`) has been added, and package dependency
+floors move to `11.0.0` (on `net11.0` and `.NET Framework`) and `10.0.15` (on
+`net10.0`). On retained targets, existing `2.2.0` public signatures remain
+source- and binary-compatible. See the
+[2.x to 3.0.0 migration guide](docs/migration-3.0.0.md) for upgrade steps.
+
+### Removed
+
+- **`.NET 8` (`net8.0`) and `.NET 9` (`net9.0`) target frameworks** from the
+  three multi-targeted packages and four multi-targeted test projects. The
+  supported five-target matrix is `net11.0`, `net10.0`, `net481`, `net48`, and
+  `net472` (`AdaskoTheBeAsT.Interop.Execution.AspNetCore` targets `net11.0` and
+  `net10.0`).
+
+### Added
+
+- **Contextual session lifecycle (`EX-01`):**
+  `SessionLifecycleContext`, `SessionRecycleReason` (`MaxOperationsReached`,
+  `OperationFaulted`), `IContextualExecutionSessionFactory<TSession>` (deriving
+  from `IExecutionSessionFactory<TSession>`), and the abstract
+  `ContextualExecutionSessionFactory<TSession>` base class. Contextual factories
+  receive a stable `WorkerIndex` (`0` for standalone workers, `0..WorkerCount-1`
+  in pools), `WorkerCount`, `WorkerName`, `ManagedThreadId`,
+  `PreviousRecycleReason`, and the same `SessionGeneration` across matching
+  `CreateSession` and `DisposeSession` calls, incrementing `SessionGeneration`
+  only after a session or replacement is successfully created.
+- **Worker-indexed DI and Hosting overloads (`EX-01`):**
+  `AddExecutionWorkerPool<TSession>(Func<IServiceProvider, int, IExecutionSessionFactory<TSession>>, ...)`
+  in `AdaskoTheBeAsT.Interop.Execution.DependencyInjection` and
+  `AddExecutionWorkerPoolHostedService<TSession>(Func<IServiceProvider, int, IExecutionSessionFactory<TSession>>, ...)`
+  in `AdaskoTheBeAsT.Interop.Execution.Hosting`, plus automatic resolution of
+  `IContextualExecutionSessionFactory<TSession>` ahead of
+  `IExecutionSessionFactory<TSession>` in standard worker and pool DI
+  registrations.
+- **Execution deadline extension overloads (`EX-03`):**
+  `ExecutionDispatcherExtensions` adds `ExecuteAsync` and `ExecuteValueAsync`
+  (void and `TResult`, with and without `ExecutionRequestOptions`) overloads
+  accepting `TimeSpan timeout` on `IExecutionDispatcher<TSession>`. Deadlines
+  bound startup, queueing, and execution waits without adding abstract interface
+  members; queued expired items never run; caller cancellation preserves the
+  exact caller `CancellationToken` while deadline expiry throws
+  `TimeoutException`; in-flight synchronous native work keeps the worker/session
+  occupied and retains its linked cancellation source until completion before
+  reusing uncancelled `CancellationTokenSource` instances on `.NET 6+`.
+- **Hosting health checks and readiness snapshot fields (`EX-04`):**
+  extended `ExecutionWorkerSnapshot` (`IsInitialized`, `IsDisposed`) and
+  `ExecutionWorkerPoolSnapshot` (`IsInitialized`, `IsDisposed`,
+  `InitializedWorkerCount`, `FaultedWorkerCount`) while preserving existing
+  constructors, and added `ExecutionHealthCheckOptions`,
+  `ExecutionWorkerHealthCheck<TSession>`,
+  `ExecutionWorkerPoolHealthCheck<TSession>`,
+  `AddExecutionWorkerHealthCheck<TSession>`, and
+  `AddExecutionWorkerPoolHealthCheck<TSession>` in
+  `AdaskoTheBeAsT.Interop.Execution.Hosting`. Health checks report `Unhealthy`
+  before eager initialization finishes, after disposal, on startup/total worker
+  faults, `Degraded` on partial pool worker loss or when `QueueDepth` reaches
+  `QueueDepthWarningThreshold`, and `Healthy` otherwise.
+- **Pre-thread startup callback (`EX-06`):**
+  optional `Action? BeforeThreadStart` on `ExecutionWorkerOptions` and
+  `ExecutionWorkerPoolOptions` (propagated through option snapshots and DI).
+  Runs synchronously on the caller before dedicated worker threads are created,
+  configured for STA, and started, running once per pool startup attempt before
+  any worker thread spawns.
+- **Typed `ExecutionAdmissionRejectedException` (`EX-07`):**
+  `public sealed class ExecutionAdmissionRejectedException : InvalidOperationException`
+  carrying `WorkerName`, `QueueCapacity`, and `DefaultMessage`
+  (`"The worker admission capacity is exhausted."`), emitted by both
+  `ExecutionWorker<TSession>` and `ExecutionWorkerPool<TSession>` across `Task`
+  and `ValueTask` submissions when `QueueCapacity > 0` is saturated (with
+  `.NET Framework` `[Serializable]` round-trip support).
+- **Automatic `IExecutionDispatcher<TSession>` forwarding and validated
+  `IServiceProvider` options in DI and Hosting (`EX-08`):**
+  `AddExecutionWorker<TSession>` and `AddExecutionWorkerPool<TSession>` now
+  forward `IExecutionDispatcher<TSession>` via `TryAddSingleton`, add
+  `Action<IServiceProvider, ExecutionWorkerOptions>` and
+  `Action<IServiceProvider, ExecutionWorkerPoolOptions>` overloads (mirrored on
+  `AddExecutionWorkerHostedService<TSession>` and
+  `AddExecutionWorkerPoolHostedService<TSession>`), expose public `Validate()`
+  methods on `ExecutionWorkerOptions` and `ExecutionWorkerPoolOptions`, and wire
+  `IValidateOptions<T>` with `.ValidateOnStart()` so invalid options fail fast
+  during `IHost.StartAsync`.
+- **`DelegateExecutionSessionFactory<TSession>` and inline delegate DI/Hosting
+  registration (`EX-09`):**
+  `DelegateExecutionSessionFactory<TSession>` (deriving from
+  `ContextualExecutionSessionFactory<TSession>`) supports simple and contextual
+  session creation/disposal lambdas with automatic `(session as IDisposable)?.Dispose()`
+  fallback, paired with inline `createSession` / `disposeSession` registration
+  overloads in `Execution.DependencyInjection` and `Execution.Hosting`.
+- **Companion `AdaskoTheBeAsT.Interop.Execution.AspNetCore` package (`EX-10`,
+  `net11.0;net10.0`):**
+  zero-third-party-dependency ASP.NET Core integration shipping
+  `ExecutionAspNetCoreOptions`, `ExecutionEndpointFilter`
+  (`WithExecutionExceptionHandling` on `RouteHandlerBuilder` and
+  `RouteGroupBuilder`), `ExecutionExceptionHandler : IExceptionHandler`
+  (`AddExecutionExceptionHandler`), AOT-safe source-generated
+  `ExecutionWorkerDiagnosticsDto` and `ExecutionWorkerPoolDiagnosticsDto`
+  (`FaultType` instead of raw `Exception`, avoiding `MethodBase` serialization
+  failures and stack-trace leaks), `ExecutionAspNetCoreJsonSerializerContext`,
+  `AddExecutionAspNetCoreJson()`, `MapExecutionWorkerDiagnostics<TSession>()`,
+  `MapExecutionWorkerPoolDiagnostics<TSession>()`, and
+  `MapExecutionHealthProbes()`.
+- **Worker-thread `MaxStackSize`, `OnWorkerThreadStart`, and
+  `CreateWorkerThreadScope` (`EX-11`):**
+  configurable dedicated-thread `MaxStackSize` (`>= 0`) plus once-per-thread
+  `OnWorkerThreadStart` (`Action?` / `Action<int>?`) and worker-lifetime
+  `CreateWorkerThreadScope` (`Func<IDisposable?>?` /
+  `Func<int, IDisposable?>?`) on `ExecutionWorkerOptions` and
+  `ExecutionWorkerPoolOptions`, running on the dedicated STA/MTA thread before
+  initial session creation, surviving session recyclings, and disposing on the
+  same worker thread strictly after final `DisposeSession()`.
+- [2.x to 3.0.0 migration guide](docs/migration-3.0.0.md) and Architecture
+  Decision Records [ADR-0011](docs/adr/0011-net11-target-framework-matrix.md),
+  [ADR-0012](docs/adr/0012-contextual-session-lifecycle.md),
+  [ADR-0013](docs/adr/0013-before-thread-start-hook.md),
+  [ADR-0014](docs/adr/0014-execution-deadline-extensions.md),
+  [ADR-0015](docs/adr/0015-hosting-health-checks-and-readiness-snapshots.md),
+  [ADR-0016](docs/adr/0016-typed-admission-rejected-exception.md),
+  [ADR-0017](docs/adr/0017-dispatcher-forwarding-and-validated-di-options.md),
+  [ADR-0018](docs/adr/0018-delegate-execution-session-factory.md),
+  [ADR-0019](docs/adr/0019-aspnetcore-execution-integration-and-safe-diagnostics.md),
+  and [ADR-0020](docs/adr/0020-worker-thread-stack-size-and-thread-affine-scopes.md).
+
+### Changed
+
+- Updated `global.json` to `.NET SDK 11.0.100` with
+  `Microsoft.Testing.Platform`, `<LangVersion>14.0</LangVersion>`, and package
+  version `3.0.0` in `Directory.Build.props`.
+- Updated `.NET Framework` package dependencies (`System.Threading.Channels`,
+  `System.Diagnostics.DiagnosticSource`, and `Microsoft.Extensions.*`) and
+  `net11.0` `Microsoft.Extensions.*` dependencies to `[11.0.0, 12.0.0)`, raised
+  `net10.0` `Microsoft.Extensions.*` floors to `[10.0.15, 11.0.0)`, and added
+  `Microsoft.Extensions.Diagnostics.HealthChecks` to
+  `AdaskoTheBeAsT.Interop.Execution.Hosting`.
+- Updated analyzer and test-project dependencies (`Meziantou.Analyzer`
+  `3.0.341`, `Microsoft.CodeAnalysis.*` `5.12.0`,
+  `Microsoft.CodeAnalysis.NetAnalyzers` `11.0.100`, `SonarAnalyzer.CSharp`
+  `10.36.0.15337`, `StyleCop.Analyzers` `1.3.180`, `Microsoft.NET.Test.Sdk`
+  `18.12.0`, `Microsoft.Testing.Extensions.GitHubActionsReport` `2.5.3`,
+  `xunit.v3` `4.0.3`, and `xunit.analyzers` `2.3.0`).
+
+### Regression coverage
+
+- Unit and integration tests across `net11.0`, `net10.0`, `net481`, `net48`, and
+  `net472` (plus `net11.0` and `net10.0` for `Execution.AspNetCore.Test`) cover
+  contextual lifecycle generations, `DelegateExecutionSessionFactory`, failure
+  handling, two concurrent STA/MTA pools over 50+ recycles per slot,
+  `BeforeThreadStart`, `MaxStackSize`, `OnWorkerThreadStart`, and
+  `CreateWorkerThreadScope` ordering/affinity, eager startup readiness
+  (`EX-02`), CAS `QueueCapacity` admission and typed
+  `ExecutionAdmissionRejectedException` (`EX-05`, `EX-07`), deadline
+  boundary/cancellation/race semantics, `IExecutionDispatcher<TSession>` DI
+  forwarding and `ValidateOnStart` (`EX-08`), Hosting health-check state
+  transitions, and ASP.NET Core `TestServer` filter/exception-handler HTTP
+  mappings and strict source-generated `/api/diagnostics` serialization under
+  worker faults (`EX-10`).
+
 ## [2.2.0]
 
 Adds `ExecuteValueAsync` to the worker and pool interfaces, supports resolving

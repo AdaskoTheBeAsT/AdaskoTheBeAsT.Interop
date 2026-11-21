@@ -31,10 +31,20 @@ Each record follows the same shape:
 | [0008](0008-uniform-snapshot-surface.md) | Uniform `Name` / `GetSnapshot` surface and single-factory pool constructor | Accepted |
 | [0009](0009-scoped-execution-diagnostics.md) | Scoped `ExecutionDiagnostics` with `Shared` singleton | Accepted |
 | [0010](0010-worker-completion-and-lifecycle.md) | Worker completion ownership, admission, and lifecycle | Accepted |
+| [0011](0011-net11-target-framework-matrix.md) | .NET 11 target framework matrix and 3.0.0 dependency baseline | Accepted |
+| [0012](0012-contextual-session-lifecycle.md) | Contextual session lifecycle and worker-indexed DI/Hosting registration | Accepted |
+| [0013](0013-before-thread-start-hook.md) | Synchronous `BeforeThreadStart` startup ordering hook | Accepted |
+| [0014](0014-execution-deadline-extensions.md) | Execution deadline extension overloads and linked-token lifetime | Accepted |
+| [0015](0015-hosting-health-checks-and-readiness-snapshots.md) | Hosting `IHealthCheck` integration and additive readiness snapshots | Accepted |
+| [0016](0016-typed-admission-rejected-exception.md) | Typed `ExecutionAdmissionRejectedException` for bounded queue rejections | Accepted |
+| [0017](0017-dispatcher-forwarding-and-validated-di-options.md) | Automatic `IExecutionDispatcher<TSession>` forwarding and validated `IServiceProvider` options in DI/Hosting | Accepted |
+| [0018](0018-delegate-execution-session-factory.md) | `DelegateExecutionSessionFactory<TSession>` and inline delegate DI/Hosting registration | Accepted |
+| [0019](0019-aspnetcore-execution-integration-and-safe-diagnostics.md) | Companion `AdaskoTheBeAsT.Interop.Execution.AspNetCore` package and AOT-safe diagnostics DTOs | Accepted |
+| [0020](0020-worker-thread-stack-size-and-thread-affine-scopes.md) | Configurable worker `MaxStackSize` and worker-thread-affine `OnWorkerThreadStart` / `CreateWorkerThreadScope` | Accepted |
 
 ## Scope
 
-These ADRs cover the quality-score delta taken after the Phase 0 → Phase 3 hardening described in [`../../plan.md`](../../plan.md) and the residual gaps listed in [`../../improve.md`](../../improve.md). Larger architectural moves (initial worker design, `IAsyncDisposable`, options pattern, DI split) are described in `plan.md` itself and are not duplicated here.
+These ADRs cover the quality-score delta taken after the Phase 0 → Phase 3 hardening described in [`../../plan.md`](../../plan.md), the residual gaps listed in [`../../improve.md`](../../improve.md), the `2.0.0` completion/lifecycle overhaul, and the `3.0.0` `.NET 11`, [`../plan-2026-11-14.md`](../plan-2026-11-14.md), and [`../plan-2026-11-17.md`](../plan-2026-11-17.md) execution, DI, Hosting, and ASP.NET Core improvements. Larger initial architectural moves (worker design, `IAsyncDisposable`, options pattern, DI split) are described in `plan.md` itself and are not duplicated here.
 
 ## Adding a new ADR
 

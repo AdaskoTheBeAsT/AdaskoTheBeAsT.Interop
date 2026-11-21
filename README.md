@@ -5,8 +5,9 @@
 [![NuGet](https://img.shields.io/nuget/v/AdaskoTheBeAsT.Interop.Execution.svg?label=AdaskoTheBeAsT.Interop.Execution&logo=nuget)](https://www.nuget.org/packages/AdaskoTheBeAsT.Interop.Execution/)
 [![NuGet](https://img.shields.io/nuget/v/AdaskoTheBeAsT.Interop.Execution.DependencyInjection.svg?label=Execution.DependencyInjection&logo=nuget)](https://www.nuget.org/packages/AdaskoTheBeAsT.Interop.Execution.DependencyInjection/)
 [![NuGet](https://img.shields.io/nuget/v/AdaskoTheBeAsT.Interop.Execution.Hosting.svg?label=Execution.Hosting&logo=nuget)](https://www.nuget.org/packages/AdaskoTheBeAsT.Interop.Execution.Hosting/)
+[![NuGet](https://img.shields.io/nuget/v/AdaskoTheBeAsT.Interop.Execution.AspNetCore.svg?label=Execution.AspNetCore&logo=nuget)](https://www.nuget.org/packages/AdaskoTheBeAsT.Interop.Execution.AspNetCore/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
-![TFMs](https://img.shields.io/badge/TFMs-net10.0%20%7C%20net9.0%20%7C%20net8.0%20%7C%20net4.7.2%E2%80%93net4.8.1-512BD4?logo=dotnet)
+![TFMs](https://img.shields.io/badge/TFMs-net11.0%20%7C%20net10.0%20%7C%20net4.7.2%E2%80%93net4.8.1-512BD4?logo=dotnet)
 ![Warnings](https://img.shields.io/badge/warnings--as--errors-on-green)
 ![Deterministic](https://img.shields.io/badge/deterministic%20build-on-blue)
 
@@ -43,54 +44,59 @@ And now it is. ✨
 
 ## Changelog
 
-### 2.2.0
+### 3.0.0
 
-The version in [`Directory.Build.props`](Directory.Build.props) is **2.2.0**
-for all three packages. This release improves DI ergonomics, hardens diagnostics
-lifetime and bounded queue admission, cleans up analyzer findings, and updates
-runtime, test, and analyzer dependencies:
+The version in [`Directory.Build.props`](Directory.Build.props) is **3.0.0**
+across all four packages. This release upgrades the repository to **.NET 11**
+(`11.0.100`) and **C# 14**, moves the multi-targeted matrix to **`net11.0`,
+`net10.0`, `net481`, `net48`, and `net472`** (removing `net8.0` and `net9.0`),
+introduces **`AdaskoTheBeAsT.Interop.Execution.AspNetCore`** (`net11.0;net10.0`),
+and adds contextual session lifecycle metadata, delegate session factories,
+`IExecutionDispatcher<TSession>` DI forwarding, validated `IServiceProvider`
+options, typed admission-rejection exceptions, dedicated worker-thread stack
+sizing and scopes, execution deadline extensions, and Hosting `IHealthCheck`
+support:
 
-- **Pooled `ValueTask` execution on interfaces & shared `IExecutionDispatcher<TSession>` base:**
-  extracted the common dispatch contract (`WorkerFaulted`, `QueueDepth`, `Name`,
-  `Initialize`, `InitializeAsync`, `ExecuteAsync`, and `ExecuteValueAsync` void
-  and `TResult` overloads) into `IExecutionDispatcher<TSession>`, inherited by
-  both `IExecutionWorker<TSession>` and `IExecutionWorkerPool<TSession>`, so DI
-  consumers injecting the interfaces can use the pooled `ValueTask` path without
-  casting to concrete types.
-- **Custom pool scheduler resolution in DI:** `AddExecutionWorkerPool<TSession>`
-  in `AdaskoTheBeAsT.Interop.Execution.DependencyInjection` now resolves an
-  optional `IWorkerScheduler<TSession>` from the `IServiceProvider` when
-  registered.
-- **Leak-free diagnostics registration:** `ExecutionDiagnostics` now tracks
-  registered workers via `WeakReference<T>` instead of a strong closure over the
-  worker instance, preventing `ExecutionDiagnostics.Shared` (or custom
-  `ExecutionDiagnostics` scopes) from rooting undisposed workers in memory and
-  automatically pruning collected workers when `execution.worker.queue_depth` is
-  observed.
-- **Exact bounded queue admission under contention:** replaced
-  increment-then-rollback admission in `ExecutionWorker<TSession>` with a
-  compare-and-swap (CAS) loop when `QueueCapacity > 0`, ensuring `QueueDepth`
-  and `LeastQueuedWorkerScheduler` snapshots never transiently exceed
-  `QueueCapacity` during concurrent capacity rejections.
-- **Analyzer & code-quality cleanups:** initialized `ExecutionWorkItem<TResult>.Task`
-  in the constructor (`VSTHRD003`), exposed `ExecutionDiagnostics.QueueDepthGauge`
-  internally (`IDE0052` / `S1144` / `S4487`), simplified thread-name pattern
-  matching (`S8969`), and moved `ManualResetValueTaskSourceCore<T>.RunContinuationsAsynchronously`
-  setup into the pooled work-item constructors (`CC0121`), removing the
-  associated warning suppressions.
-- **Dependency & analyzer updates:** raised `Microsoft.Extensions.*` dependency
-  minimums to **10.0.13** for .NET 10 and .NET Framework and **9.0.21** for
-  .NET 9 (.NET 8 unchanged); raised `System.Threading.Channels` and
-  `System.Diagnostics.DiagnosticSource` minimums to **10.0.13** for .NET
-  Framework; updated analyzer and test-project packages (`AdaskoTheBeAsT.CodeCracker.CSharp`
-  **1.1.0.270**, `Meziantou.Analyzer` **3.0.316**,
-  `Microsoft.CodeAnalysis.NetAnalyzers` **10.0.402**,
-  `Microsoft.VisualStudio.Threading.Analyzers` **18.12.1**, `Roslynator.*`
-  **5.0.1**, `SonarAnalyzer.CSharp` **10.35.0.4138**, `StyleCop.Analyzers`
-  **1.3.151-beta**, `Microsoft.NET.Test.Sdk` **18.11.0**, `Moq` **4.21.0**, and
-  `xunit.v3` **4.0.2**).
+- **Contextual session lifecycle & `DelegateExecutionSessionFactory<TSession>`:**
+  `SessionLifecycleContext`, `SessionRecycleReason`,
+  `ContextualExecutionSessionFactory<TSession>`, and
+  `DelegateExecutionSessionFactory<TSession>` pass a stable `WorkerIndex`
+  (`0..WorkerCount - 1`), `WorkerCount`, `WorkerName`, `ManagedThreadId`,
+  `PreviousRecycleReason`, and matching `SessionGeneration` values to both
+  `CreateSession` and `DisposeSession`, with single-lambda DI and Hosting
+  registration overloads.
+- **Ergonomic DI & Hosting registration:** `AddExecutionWorker<TSession>` and
+  `AddExecutionWorkerPool<TSession>` automatically forward
+  `IExecutionDispatcher<TSession>` via `TryAddSingleton`, add
+  `Action<IServiceProvider, ...>` and worker-indexed overloads (mirrored on
+  `AddExecutionWorkerHostedService<TSession>` and
+  `AddExecutionWorkerPoolHostedService<TSession>`), and validate options on
+  startup via `IValidateOptions<T>` + `.ValidateOnStart()`.
+- **Worker-thread lifecycle & `MaxStackSize`:** optional caller-side
+  `BeforeThreadStart` plus dedicated-thread `MaxStackSize`,
+  `OnWorkerThreadStart`, and worker-lifetime `CreateWorkerThreadScope`
+  (`IDisposable` disposed on the same worker thread strictly after final
+  `DisposeSession()`).
+- **Typed `ExecutionAdmissionRejectedException` & execution deadlines:**
+  bounded `QueueCapacity` saturation throws
+  `ExecutionAdmissionRejectedException : InvalidOperationException` carrying
+  `WorkerName` and `QueueCapacity`, while `ExecutionDispatcherExtensions` bounds
+  startup, queueing, and execution waits with `TimeSpan timeout`.
+- **Hosting health checks & `Execution.AspNetCore` integration:** extended
+  `ExecutionWorkerSnapshot` / `ExecutionWorkerPoolSnapshot` readiness fields,
+  built-in `IHealthCheck` registrations in `Execution.Hosting`, and a new
+  `AdaskoTheBeAsT.Interop.Execution.AspNetCore` companion package (`net11.0;net10.0`)
+  providing `WithExecutionExceptionHandling`, `AddExecutionExceptionHandler`,
+  AOT-safe source-generated diagnostics DTOs (`MapExecutionWorkerDiagnostics`,
+  `MapExecutionWorkerPoolDiagnostics`), and `MapExecutionHealthProbes`.
+- **Target framework & dependency updates:** added `net11.0`, removed `net8.0`
+  and `net9.0`, updated `net11.0` and `.NET Framework` package ranges to
+  `[11.0.0, 12.0.0)` and `net10.0` `Microsoft.Extensions.*` ranges to
+  `[10.0.15, 11.0.0)`, and updated SDK (`11.0.100`), analyzer, and `xunit.v3`
+  (`4.0.3`) packages.
 
-See the [full changelog](CHANGELOG.md) for release history.
+See the [2.x to 3.0.0 migration guide](docs/migration-3.0.0.md) and the
+[full changelog](CHANGELOG.md) for release history.
 
 ---
 
@@ -140,7 +146,8 @@ See the [changelog](CHANGELOG.md) for release details.
 - 🪟 **First-class Windows STA.** Flip a boolean, get an STA worker thread on Windows; silently ignored elsewhere.
 - ♻️ **Real session recycling.** After N operations, after a failure, or both — your call.
 - 🛡️ **Terminal-once faulting.** When a worker goes bad, it says so *once*, loudly, via `WorkerFaulted` — no silent-dead-thread surprises.
-- **6 target frameworks.** `net10.0`, `net9.0`, `net8.0`, `net481`, `net48`, `net472`. .NET Framework 4.7.2 is the minimum for 2.0.0.
+- ⏱️ **Built-in execution deadlines & health checks.** Bound caller waits with `TimeSpan` extensions on `IExecutionDispatcher<TSession>` and wire readiness/degradation checks straight into `AddHealthChecks()`.
+- **5 target frameworks.** `net11.0`, `net10.0`, `net481`, `net48`, `net472`. .NET Framework 4.7.2 is the desktop minimum and .NET 10 is the modern .NET minimum in 3.0.0.
 - ✏️ **Source Link + snupkg.** Step into the library from your debugger without guessing.
 
 ---
@@ -149,9 +156,10 @@ See the [changelog](CHANGELOG.md) for release details.
 
 | Package | What it gives you |
 | --- | --- |
-| [`AdaskoTheBeAsT.Interop.Execution`](https://www.nuget.org/packages/AdaskoTheBeAsT.Interop.Execution/) | ⚓ Core: `ExecutionWorker<TSession>`, `ExecutionWorkerPool<TSession>`, `IExecutionSessionFactory<TSession>`, options, schedulers, diagnostics. |
-| [`AdaskoTheBeAsT.Interop.Execution.DependencyInjection`](https://www.nuget.org/packages/AdaskoTheBeAsT.Interop.Execution.DependencyInjection/) | 🧩 `Microsoft.Extensions.DependencyInjection` helpers: `AddExecutionWorker<TSession>()` / `AddExecutionWorkerPool<TSession>()` with `IOptions<T>` binding. |
-| [`AdaskoTheBeAsT.Interop.Execution.Hosting`](https://www.nuget.org/packages/AdaskoTheBeAsT.Interop.Execution.Hosting/) | 🏗️ `Microsoft.Extensions.Hosting` integration: `IHostedService` wrappers driving worker / pool lifetime from the generic host. |
+| [`AdaskoTheBeAsT.Interop.Execution`](https://www.nuget.org/packages/AdaskoTheBeAsT.Interop.Execution/) | ⚓ Core: `ExecutionWorker<TSession>`, `ExecutionWorkerPool<TSession>`, `IExecutionSessionFactory<TSession>`, `IContextualExecutionSessionFactory<TSession>`, `DelegateExecutionSessionFactory<TSession>`, `ExecutionAdmissionRejectedException`, deadline extensions, options, schedulers, diagnostics. |
+| [`AdaskoTheBeAsT.Interop.Execution.DependencyInjection`](https://www.nuget.org/packages/AdaskoTheBeAsT.Interop.Execution.DependencyInjection/) | 🧩 `Microsoft.Extensions.DependencyInjection` helpers: `AddExecutionWorker<TSession>()` / `AddExecutionWorkerPool<TSession>()` with automatic `IExecutionDispatcher<TSession>` forwarding, inline session delegates, worker-indexed resolvers, and `ValidateOnStart` `IOptions<T>` binding. |
+| [`AdaskoTheBeAsT.Interop.Execution.Hosting`](https://www.nuget.org/packages/AdaskoTheBeAsT.Interop.Execution.Hosting/) | 🏗️ `Microsoft.Extensions.Hosting` & `HealthChecks` integration: `IHostedService` wrappers and `IHealthCheck` registrations driving worker / pool lifetime and readiness from the generic host. |
+| [`AdaskoTheBeAsT.Interop.Execution.AspNetCore`](https://www.nuget.org/packages/AdaskoTheBeAsT.Interop.Execution.AspNetCore/) | 🌐 ASP.NET Core Minimal API & `ProblemDetails` integration (`net11.0;net10.0`): `WithExecutionExceptionHandling`, `AddExecutionExceptionHandler`, AOT-safe source-generated diagnostics DTOs (`MapExecutionWorkerDiagnostics`, `MapExecutionWorkerPoolDiagnostics`), and `MapExecutionHealthProbes`. |
 
 ### ⬇️ Install
 
@@ -159,6 +167,7 @@ See the [changelog](CHANGELOG.md) for release details.
 dotnet add package AdaskoTheBeAsT.Interop.Execution
 dotnet add package AdaskoTheBeAsT.Interop.Execution.DependencyInjection
 dotnet add package AdaskoTheBeAsT.Interop.Execution.Hosting
+dotnet add package AdaskoTheBeAsT.Interop.Execution.AspNetCore
 ```
 
 Symbols ship as `.snupkg` with Source Link and embedded untracked sources. Step in. Look around. It's fine.
@@ -169,20 +178,24 @@ Symbols ship as `.snupkg` with Source Link and embedded untracked sources. Step 
 
 | TFM | Status | Notes |
 | --- | :-: | --- |
-| `net10.0` | ✅ | Primary target; in-box `System.Threading.Channels` + `System.Diagnostics.DiagnosticSource`. |
-| `net9.0` | ✅ | Primary target. |
-| `net8.0` | ✅ | Primary target. |
-| `net481` | ✅ | Windows desktop; `System.Threading.Channels` + `System.Diagnostics.DiagnosticSource` via NuGet + `IsExternalInit` polyfill. |
+| `net11.0` | ✅ | Primary target across all 4 packages; in-box `System.Threading.Channels` + `System.Diagnostics.DiagnosticSource`. |
+| `net10.0` | ✅ | Primary LTS target across all 4 packages. |
+| `net481` | ✅ | Windows desktop (`Execution`, `DependencyInjection`, `Hosting`); `System.Threading.Channels` + `System.Diagnostics.DiagnosticSource` via NuGet + `IsExternalInit` polyfill. |
 | `net48` | ✅ | Same as above. |
 | `net472` | ✅ | Same as above. |
 
-This six-target matrix applies to all three packages in 2.0.0.
-**Removed:** `net462` (.NET Framework 4.6.2), `net47` (4.7), and `net471` (4.7.1).
-Retarget affected projects and deployment environments to .NET Framework 4.7.2
-or later before installing 2.0.0; see the [migration guide](docs/migration-2.0.0.md).
+The five-target matrix applies to `Execution`, `Execution.DependencyInjection`,
+and `Execution.Hosting`, while `Execution.AspNetCore` targets `net11.0` and
+`net10.0` (`Microsoft.AspNetCore.App`).
+**Removed in 3.0.0:** `net8.0` (.NET 8) and `net9.0` (.NET 9); see the
+[2.x to 3.0.0 migration guide](docs/migration-3.0.0.md).
+**Removed in 2.0.0:** `net462` (.NET Framework 4.6.2), `net47` (4.7), and
+`net471` (4.7.1); see the [1.0.x to 2.0.0 migration guide](docs/migration-2.0.0.md).
 
 CI enables `TreatWarningsAsErrors=true`, `ContinuousIntegrationBuild=true`, and
-`Deterministic=true`. All four test projects target this same matrix.
+`Deterministic=true`. The four multi-targeted test projects target this same
+five-TFM matrix, while `Execution.AspNetCore.Test` targets `net11.0` and
+`net10.0`.
 
 ---
 
@@ -254,7 +267,7 @@ Owns 👇
 - parallel initialization and parallel disposal
 - aggregate observability (`QueueDepth`, `IsAnyFaulted`, `WorkerFaults`, forwarded `WorkerFaulted`, and per-worker snapshots via `GetSnapshot().Workers`)
 
-### 🏭 `IExecutionSessionFactory<TSession>`
+### 🏭 `IExecutionSessionFactory<TSession>`, `IContextualExecutionSessionFactory<TSession>`, and `DelegateExecutionSessionFactory<TSession>`
 
 ```csharp
 public interface IExecutionSessionFactory<TSession>
@@ -267,9 +280,19 @@ public interface IExecutionSessionFactory<TSession>
 
 Creates the thread-affine session (loading native libs, initialising modules) and disposes / unloads it. Both methods run on the dedicated worker thread.
 
+Need the stable worker slot (`0..WorkerCount - 1`), pool size, session generation (`0, 1, 2, ...`), or previous recycle reason (`MaxOperationsReached` / `OperationFaulted`)? Implement `IContextualExecutionSessionFactory<TSession>` (or subclass `ContextualExecutionSessionFactory<TSession>`): `CreateSession` and `DisposeSession` receive the same `SessionLifecycleContext.SessionGeneration` for a given session lifetime.
+
+Don't want to write a custom factory class just to invoke a constructor and `Dispose()`? Use `DelegateExecutionSessionFactory<TSession>` (or the inline delegate overloads in DI and Hosting):
+
+```csharp
+var factory = new DelegateExecutionSessionFactory<NativeSession>(
+    (context, ct) => new NativeSession(context.WorkerIndex));
+// Automatically checks ct.ThrowIfCancellationRequested() and calls (session as IDisposable)?.Dispose().
+```
+
 ### 🎛️ `ExecutionWorkerOptions`
 
-`Name`, `UseStaThread`, `MaxOperationsPerSession` (`0` = unlimited), `DisposeTimeout` (default `Timeout.InfiniteTimeSpan`), `Diagnostics` (scoped `ExecutionDiagnostics` instance — defaults to a process-wide `Shared` singleton). Parameterless ctor + positional ctor + public setters so it binds cleanly via `IOptions<T>`.
+`Name`, `UseStaThread`, `MaxStackSize` (`0` = runtime default, `> 0` = dedicated thread stack reservation in bytes), `MaxOperationsPerSession` (`0` = unlimited), `DisposeTimeout` (default `Timeout.InfiniteTimeSpan`), `Diagnostics` (scoped `ExecutionDiagnostics` instance — defaults to a process-wide `Shared` singleton), `BeforeThreadStart` (optional callback invoked synchronously on the caller before creating and starting the worker thread), `OnWorkerThreadStart` (invoked once on the dedicated worker thread after `ApartmentState` is set and before initial `CreateSession`), and `CreateWorkerThreadScope` (`Func<IDisposable?>?` invoked once on the dedicated worker thread before initial `CreateSession`, surviving session recyclings, and disposed on that exact worker thread strictly after the final `DisposeSession()`). Parameterless ctor + positional ctor + public setters + public `Validate()` so it binds cleanly via `IOptions<T>`.
 
 `QueueCapacity` limits requests waiting for startup or execution (`0` = unlimited).
 `ShutdownMode` selects `Drain` (default) or `CancelPending`. Options are validated
@@ -277,7 +300,7 @@ and copied when the worker is constructed; later mutations do not reconfigure it
 
 ### 🎛️ `ExecutionWorkerPoolOptions`
 
-`WorkerCount`, `Name`, `UseStaThread`, `MaxOperationsPerSession`, `DisposeTimeout`, `SchedulingStrategy` (default `LeastQueued`), `Diagnostics`. Same binding story.
+`WorkerCount`, `Name`, `UseStaThread`, `MaxStackSize`, `MaxOperationsPerSession`, `DisposeTimeout`, `SchedulingStrategy` (default `LeastQueued`), `Diagnostics`, `BeforeThreadStart` (invoked synchronously once per pool startup attempt before any worker thread is created), `OnWorkerThreadStart` (`Action<int>?` receiving `workerIndex`), and `CreateWorkerThreadScope` (`Func<int, IDisposable?>?` receiving `workerIndex`). Same binding and `Validate()` story.
 
 `QueueCapacity` and `ShutdownMode` apply to each worker. Pool options are also
 copied at construction. Capacity is per worker, not a shared pool-wide limit.
@@ -312,7 +335,9 @@ serialization or process isolation.
 - `InitializeAsync(token)` cancels only that caller's wait. Shared startup
   continues for other callers. Disposing the worker separately requests
   cancellation of initial session creation.
-- A full `QueueCapacity` faults the submission with `InvalidOperationException`;
+- A full `QueueCapacity` faults the submission with
+  `ExecutionAdmissionRejectedException` (which derives from
+  `InvalidOperationException` and exposes `WorkerName` and `QueueCapacity`);
   it does not block or silently drop work. The executing request is excluded
   from the limit. A pool does not retry another worker after capacity rejection.
 - A request canceled before execution is skipped when dequeued. Once running,
@@ -420,6 +445,29 @@ completion ownership and the same recovery behavior as the Task path.
 See [ADR-0010](docs/adr/0010-worker-completion-and-lifecycle.md), which supersedes
 the lifecycle design in [ADR-0007](docs/adr/0007-zero-alloc-value-task-source.md).
 
+### Execution deadlines (`TimeSpan timeout`)
+
+`ExecutionDispatcherExtensions` provides `ExecuteAsync` and `ExecuteValueAsync`
+extension overloads with a `TimeSpan timeout` on `IExecutionDispatcher<TSession>`:
+
+```csharp
+byte[] bytes = await worker.ExecuteAsync(
+    (session, ct) =>
+    {
+        ct.ThrowIfCancellationRequested();
+        return session.Render("<h1>Hello</h1>");
+    },
+    timeout: TimeSpan.FromSeconds(2),
+    cancellationToken: cancellationToken);
+```
+
+The deadline bounds startup, queueing, and execution. Queued work that expires
+before dequeue never runs; deadline expiry throws `TimeoutException`, while
+caller cancellation throws `OperationCanceledException` with the caller's exact
+`CancellationToken`. If a synchronous native call is already running when the
+deadline fires, the caller returns promptly while the worker stays occupied
+until the native call completes.
+
 ---
 
 ## 🏭🏭🏭🏭 Pool: multiple workers
@@ -524,6 +572,7 @@ operation or trigger failure-based recycling.
 using AdaskoTheBeAsT.Interop.Execution;
 using AdaskoTheBeAsT.Interop.Execution.DependencyInjection;
 
+// Option A: class-based session factory
 services.AddSingleton<IExecutionSessionFactory<NativeSession>, NativeSessionFactory>();
 services.AddExecutionWorker<NativeSession>(options =>
 {
@@ -532,14 +581,25 @@ services.AddExecutionWorker<NativeSession>(options =>
     options.MaxOperationsPerSession = 500;
 });
 
-// resolve IExecutionWorker<NativeSession> from DI and use it as usual
+// Option B: inline session delegate + IServiceProvider-aware options (validated on start)
+services.AddExecutionWorkerPool<NativeSession>(
+    (sp, ctx, ct) => new NativeSession(ctx.WorkerIndex),
+    (sp, options) =>
+    {
+        var cfg = sp.GetRequiredService<IOptions<HostPoolSettings>>().Value;
+        options.WorkerCount = cfg.WorkerCount;
+        options.QueueCapacity = cfg.QueueCapacity;
+    });
+
+// Resolve IExecutionDispatcher<NativeSession>, IExecutionWorker<NativeSession>,
+// or IExecutionWorkerPool<NativeSession> from DI and use it as usual.
 ```
 
-`AddExecutionWorkerPool<TSession>` is the pool-flavoured equivalent; it binds `IOptions<ExecutionWorkerPoolOptions>` and resolves an optional `IWorkerScheduler<TSession>` from the service provider when registered.
+Both `AddExecutionWorker<TSession>` and `AddExecutionWorkerPool<TSession>` automatically forward `IExecutionDispatcher<TSession>` via `TryAddSingleton` and wire `IValidateOptions<T>` + `.ValidateOnStart()` so invalid option values fail fast at host startup. `AddExecutionWorkerPool<TSession>` resolves `IContextualExecutionSessionFactory<TSession>` when registered (falling back to `IExecutionSessionFactory<TSession>`), resolves an optional `IWorkerScheduler<TSession>`, and also offers worker-indexed (`(sp, workerIndex) => ...`) and inline-delegate (`(sp, ctx, ct) => ...`) overloads.
 
 ---
 
-## 🏗️ Generic host integration
+## 🏗️ Generic host & health-check integration
 
 ```csharp
 using AdaskoTheBeAsT.Interop.Execution.Hosting;
@@ -550,14 +610,84 @@ services.AddExecutionWorkerHostedService<NativeSession>(options =>
     options.Name = "Native Render Worker";
     options.UseStaThread = true;
 });
+
+services.AddHealthChecks()
+    .AddExecutionWorkerHealthCheck<NativeSession>(
+        configure: health => health.QueueDepthWarningThreshold = 16,
+        tags: ["ready"]);
 ```
 
-The registration includes the worker and its `IHostedService` wrapper; you do
-not need a separate `AddExecutionWorker<TSession>()` call. The wrapper drives
-`InitializeAsync` on `StartAsync` and joins `DisposeAsync` on `StopAsync`.
-In 2.0.0, a canceled stop token cancels only that wait, not worker cleanup.
+The registration includes the worker, `IExecutionDispatcher<TSession>` forwarding,
+and its `IHostedService` wrapper; you do not need a separate
+`AddExecutionWorker<TSession>()` call. Both DI and Hosting also support inline
+`createSession` delegates (`DelegateExecutionSessionFactory<TSession>`) and
+`Action<IServiceProvider, ...>` option callbacks with `.ValidateOnStart()`. The
+wrapper drives `InitializeAsync` on `StartAsync` and joins `DisposeAsync` on
+`StopAsync`.
+In 2.0.0+, a canceled stop token cancels only that wait, not worker cleanup.
 Repeated stops join the same teardown, subject to each caller's token.
-`AddExecutionWorkerPoolHostedService<TSession>` covers the pool.
+`AddExecutionWorkerPoolHostedService<TSession>` and
+`AddExecutionWorkerPoolHealthCheck<TSession>` cover the pool (reporting
+`Unhealthy` before eager initialization completes, after disposal, or when all
+workers fault, and `Degraded` on partial worker loss or elevated queue depth).
+
+---
+
+## 🌐 ASP.NET Core Minimal API integration
+
+```csharp
+using AdaskoTheBeAsT.Interop.Execution.AspNetCore;
+using AdaskoTheBeAsT.Interop.Execution.Hosting;
+
+builder.Services.AddExecutionAspNetCoreJson();
+builder.Services.AddExecutionWorkerPoolHostedService<NativeSession>(
+    (sp, ctx, ct) => new NativeSession(ctx.WorkerIndex),
+    (sp, options) =>
+    {
+        options.WorkerCount = 4;
+        options.QueueCapacity = 32;
+    });
+builder.Services.AddHealthChecks()
+    .AddExecutionWorkerPoolHealthCheck<NativeSession>(tags: ["ready"]);
+
+var app = builder.Build();
+app.MapExecutionHealthProbes(); // /healthz + /readyz
+app.MapExecutionWorkerPoolDiagnostics<NativeSession>(); // AOT-safe /api/diagnostics
+
+app.MapPost("/api/calculate", async (
+        CalcRequest req,
+        IExecutionDispatcher<NativeSession> dispatcher,
+        CancellationToken ct) =>
+    TypedResults.Ok(await dispatcher.ExecuteValueAsync(
+        (session, token) => session.Calculate(req, token),
+        TimeSpan.FromSeconds(5),
+        ct)))
+    .WithExecutionExceptionHandling("Native engine unavailable.");
+```
+
+`WithExecutionExceptionHandling` (available on both `RouteHandlerBuilder` and
+`RouteGroupBuilder`, alongside the optional global
+`builder.Services.AddExecutionExceptionHandler(...)` + `app.UseExceptionHandler()`
+pipeline) maps:
+
+- `ArgumentException` -> `400 Bad Request` `ProblemDetails` using
+  `ExecutionAspNetCoreOptions.BadRequestTitle` (never echoing internal native
+  paths or stack traces).
+- `OperationCanceledException` when `HttpContext.RequestAborted` is canceled ->
+  `499 Client Closed Request`.
+- `TimeoutException`, `ExecutionAdmissionRejectedException`, or
+  `ObjectDisposedException` -> `503 Service Unavailable` `ProblemDetails` using
+  `ExecutionAspNetCoreOptions.UnavailableTitle` and an optional ceiling-rounded
+  `Retry-After` header (`ExecutionAspNetCoreOptions.RetryAfter`).
+
+`MapExecutionWorkerDiagnostics<TSession>` and
+`MapExecutionWorkerPoolDiagnostics<TSession>` project snapshots through
+source-generated DTOs (`ExecutionWorkerDiagnosticsDto` /
+`ExecutionWorkerPoolDiagnosticsDto` backed by
+`ExecutionAspNetCoreJsonSerializerContext`, exposing `faultType` instead of raw
+`System.Exception`) so `/api/diagnostics` remains Native-AOT-safe and leak-free
+even when workers fault. `MapExecutionHealthProbes` wires `/healthz` (zero-check
+liveness) and `/readyz` (`"ready"`-tagged readiness) in a single call.
 
 ---
 
@@ -614,44 +744,29 @@ Pool consumers observe the same contract aggregated: `IsAnyFaulted`, `WorkerFaul
 
 ---
 
-## 🔁 Migrating from 1.0.x
+## 🔁 Migrating
 
-Start with the [2.0.0 migration guide](docs/migration-2.0.0.md). It covers
-retargeting, package updates, before/after behavior, copyable option examples,
-and an upgrade checklist.
-
-- Retarget .NET Framework 4.6.2, 4.7, and 4.7.1 projects to 4.7.2 or later
-  before upgrading. If you cannot retarget, remain on 1.0.0.
-- On supported targets, keep your existing factory, worker/pool, and DI/Hosting
-  APIs. Public signatures are retained from tagged 1.0.0, but framework support
-  is not backward-compatible.
-- Review request completion, fault-event ordering, cancellation, and repeated
-  disposal. API compatibility does **not** mean identical runtime behavior.
-- Configure options before constructing or resolving a worker. They are now
-  snapshotted, and `DisposeTimeout` values above `int.MaxValue` milliseconds
-  are rejected during validation.
-- Opt into `QueueCapacity` or `CancelPending` only if your application needs
-  them. Handle rejection/cancellation explicitly.
-- Do not use a timeout as proof that a native call stopped. Only completed
-  external `DisposeAsync()` confirms teardown; inspect `Fault` separately.
+- **From 2.x to 3.0.0:** see the [3.0.0 migration guide](docs/migration-3.0.0.md). Retarget any `net8.0` or `net9.0` projects to `net10.0` or `net11.0`; on `net11.0`, `net10.0`, `net481`, `net48`, and `net472`, existing `2.2.0` APIs remain source- and binary-compatible.
+- **From 1.0.x to 2.0.0:** see the [2.0.0 migration guide](docs/migration-2.0.0.md). It covers retargeting from `.NET Framework < 4.7.2`, before/after completion and fault ordering, option snapshots, `QueueCapacity`, and `ShutdownMode`.
 
 ---
 
 ## 🧪 Build and test
 
 ```powershell
-dotnet build  .\AdaskoTheBeAsT.Interop.slnx
-dotnet test   .\AdaskoTheBeAsT.Interop.slnx --no-build
+dotnet build .\AdaskoTheBeAsT.Interop.slnx
+dotnet test --solution .\AdaskoTheBeAsT.Interop.slnx --no-build
 ```
 
 | Project | Role |
 | --- | --- |
-| `test/unit/AdaskoTheBeAsT.Interop.Execution.Test` | 🔬 Unit + behavioural (fault propagation, dispose idempotency, cancellation, telemetry smoke, scheduler contract). |
-| `test/unit/AdaskoTheBeAsT.Interop.Execution.DependencyInjection.Test` | 🧩 DI registration, options binding, lifetime. |
-| `test/unit/AdaskoTheBeAsT.Interop.Execution.Hosting.Test` | 🏗️ `IHostedService` start/stop lifecycle, idempotent shutdown. |
-| `test/integ/AdaskoTheBeAsT.Interop.Execution.IntegrationTest` | 🤝 Multi-threaded submission, STA on Windows, reentrant dispose, session recycling, zero-alloc `ValueTask`, snapshot surface, scoped diagnostics. |
+| `test/unit/AdaskoTheBeAsT.Interop.Execution.Test` | 🔬 Unit + behavioural (fault propagation, dispose idempotency, cancellation, deadlines, contextual & delegate factories, `ExecutionAdmissionRejectedException`, `BeforeThreadStart`, `MaxStackSize`, `OnWorkerThreadStart`, `CreateWorkerThreadScope`, telemetry smoke, scheduler contract). |
+| `test/unit/AdaskoTheBeAsT.Interop.Execution.DependencyInjection.Test` | 🧩 DI registration, `IExecutionDispatcher<TSession>` forwarding, `IServiceProvider` options + `ValidateOnStart`, contextual/indexed/delegate factory resolution. |
+| `test/unit/AdaskoTheBeAsT.Interop.Execution.Hosting.Test` | 🏗️ `IHostedService` start/stop lifecycle, idempotent registration/shutdown, startup option validation, worker/pool `IHealthCheck` transitions. |
+| `test/unit/AdaskoTheBeAsT.Interop.Execution.AspNetCore.Test` | 🌐 Minimal API `TestServer` filter/exception-handler status mappings (`200`/`400`/`499`/`503`), strict source-generated `/api/diagnostics` under faults, and `/healthz` + `/readyz` probes (`net11.0;net10.0`). |
+| `test/integ/AdaskoTheBeAsT.Interop.Execution.IntegrationTest` | 🤝 Multi-threaded submission, STA on Windows, reentrant dispose, multi-pool contextual session recycling, zero-alloc `ValueTask`, snapshot surface, scoped diagnostics. |
 
-All four test projects target the same six-framework matrix as the packages.
+The four core test projects target `net11.0`, `net10.0`, `net481`, `net48`, and `net472`, and `Execution.AspNetCore.Test` targets `net11.0` and `net10.0`.
 
 ---
 
@@ -665,6 +780,16 @@ Small, self-contained design decisions taken on this codebase live under [`docs/
 - 📸 [ADR-0008 — uniform snapshot surface](docs/adr/0008-uniform-snapshot-surface.md)
 - 🔭 [ADR-0009 — scoped `ExecutionDiagnostics`](docs/adr/0009-scoped-execution-diagnostics.md)
 - [ADR-0010: 2.0.0 completion ownership and lifecycle](docs/adr/0010-worker-completion-and-lifecycle.md)
+- 🎯 [ADR-0011 — .NET 11 target framework matrix and 3.0.0 baseline](docs/adr/0011-net11-target-framework-matrix.md)
+- 🪪 [ADR-0012 — contextual session lifecycle and indexed DI/Hosting](docs/adr/0012-contextual-session-lifecycle.md)
+- 🚦 [ADR-0013 — `BeforeThreadStart` startup ordering hook](docs/adr/0013-before-thread-start-hook.md)
+- ⏱️ [ADR-0014 — execution deadline extension overloads](docs/adr/0014-execution-deadline-extensions.md)
+- 🩺 [ADR-0015 — Hosting `IHealthCheck` and readiness snapshots](docs/adr/0015-hosting-health-checks-and-readiness-snapshots.md)
+- 🚫 [ADR-0016 — typed `ExecutionAdmissionRejectedException`](docs/adr/0016-typed-admission-rejected-exception.md)
+- 🔌 [ADR-0017 — `IExecutionDispatcher` forwarding and validated DI options](docs/adr/0017-dispatcher-forwarding-and-validated-di-options.md)
+- 🧩 [ADR-0018 — `DelegateExecutionSessionFactory` and inline delegates](docs/adr/0018-delegate-execution-session-factory.md)
+- 🌐 [ADR-0019 — `Execution.AspNetCore` and AOT-safe diagnostics](docs/adr/0019-aspnetcore-execution-integration-and-safe-diagnostics.md)
+- 🧵 [ADR-0020 — worker `MaxStackSize` and thread-affine scopes](docs/adr/0020-worker-thread-stack-size-and-thread-affine-scopes.md)
 
 ---
 
@@ -685,6 +810,7 @@ Found a bug? Got an idea? Spotted a typo that's been haunting you? 👻
 - 📄 [`wkhtml.md`](./wkhtml.md) — WkHtml migration notes.
 - 📁 [`docs/adr/`](docs/adr/) — design rationale for every recent change.
 - 📝 [`CHANGELOG.md`](./CHANGELOG.md) — what landed when.
+- [2.x to 3.0.0 migration guide](docs/migration-3.0.0.md): `.NET 11` retargeting and `3.0.0` feature adoption.
 - [1.0.x to 2.0.0 migration guide](docs/migration-2.0.0.md): retargeting, upgrade steps, and behavioral changes.
 
 ---

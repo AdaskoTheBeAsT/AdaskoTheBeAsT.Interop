@@ -31,8 +31,8 @@
   </PropertyGroup>
 
   <!--
-    Load PackageReleaseNotes from the single repository CHANGELOG.md so the
-    three packages never drift out of sync. Uses MSBuild's property functions
+    Load PackageReleaseNotes from the single repository CHANGELOG.md so all
+    four packages never drift out of sync. Uses MSBuild's property functions
     so no custom task is required; if the file is missing the property silently
     stays empty and the build still succeeds.
 

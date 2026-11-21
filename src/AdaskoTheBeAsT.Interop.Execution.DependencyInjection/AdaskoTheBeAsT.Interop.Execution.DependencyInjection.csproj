@@ -1,14 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>net10.0;net9.0;net8.0;net481;net48;net472</TargetFrameworks>
+    <TargetFrameworks>net11.0;net10.0;net481;net48;net472</TargetFrameworks>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
   <PropertyGroup>
     <!-- Per-package metadata; shared packaging props come from src/Directory.Build.props. -->
-    <Description>Microsoft.Extensions.DependencyInjection helpers for AdaskoTheBeAsT.Interop.Execution: AddExecutionWorker&lt;TSession&gt;() and AddExecutionWorkerPool&lt;TSession&gt;() extensions with IOptions&lt;T&gt; binding for ExecutionWorkerOptions / ExecutionWorkerPoolOptions. Targets net10.0, net9.0, net8.0, and net481/net48/net472.</Description>
+    <Description>Microsoft.Extensions.DependencyInjection helpers for AdaskoTheBeAsT.Interop.Execution: AddExecutionWorker&lt;TSession&gt;() and AddExecutionWorkerPool&lt;TSession&gt;() extensions (including IExecutionDispatcher&lt;TSession&gt; forwarding, IServiceProvider-aware options configuration with ValidateOnStart, worker-indexed factory resolvers, and inline session factory delegates). Targets net11.0, net10.0, and net481/net48/net472.</Description>
     <PackageTags>Interop;STA;Worker;WorkerPool;Threading;Session;DependencyInjection;DI;Microsoft.Extensions.DependencyInjection</PackageTags>
   </PropertyGroup>
 
@@ -16,24 +16,19 @@
     <ProjectReference Include="..\AdaskoTheBeAsT.Interop.Execution\AdaskoTheBeAsT.Interop.Execution.csproj" />
   </ItemGroup>
 
+  <ItemGroup Condition="'$(TargetFramework)' == 'net11.0'">
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="[11.0.0,12.0.0)" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="[11.0.0,12.0.0)" />
+  </ItemGroup>
+
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="[10.0.13,11.0.0)" />
-    <PackageReference Include="Microsoft.Extensions.Options" Version="[10.0.13,11.0.0)" />
-  </ItemGroup>
-
-  <ItemGroup Condition="'$(TargetFramework)' == 'net9.0'">
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="[9.0.21,10.0.0)" />
-    <PackageReference Include="Microsoft.Extensions.Options" Version="[9.0.21,10.0.0)" />
-  </ItemGroup>
-
-  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="[8.0.2,9.0.0)" />
-    <PackageReference Include="Microsoft.Extensions.Options" Version="[8.0.2,9.0.0)" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="[10.0.15,11.0.0)" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="[10.0.15,11.0.0)" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'net481' OR '$(TargetFramework)' == 'net48' OR '$(TargetFramework)' == 'net472'">
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="[10.0.13,11.0.0)" />
-    <PackageReference Include="Microsoft.Extensions.Options" Version="[10.0.13,11.0.0)" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="[11.0.0,12.0.0)" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="[11.0.0,12.0.0)" />
   </ItemGroup>
 
 </Project>

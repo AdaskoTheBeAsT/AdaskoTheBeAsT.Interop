@@ -342,10 +342,7 @@ public static class ExecutionDispatcherExtensions
     private static void ThrowIfNull<T>(T? argument, string paramName)
         where T : class
     {
-        if (argument is null)
-        {
-            throw new ArgumentNullException(paramName);
-        }
+        _ = argument ?? throw new ArgumentNullException(paramName);
     }
 
     private static void ValidateTimeout(TimeSpan timeout)

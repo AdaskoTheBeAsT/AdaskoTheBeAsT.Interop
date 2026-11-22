@@ -41,6 +41,7 @@ Each record follows the same shape:
 | [0018](0018-delegate-execution-session-factory.md) | `DelegateExecutionSessionFactory<TSession>` and inline delegate DI/Hosting registration | Accepted |
 | [0019](0019-aspnetcore-execution-integration-and-safe-diagnostics.md) | Companion `AdaskoTheBeAsT.Interop.Execution.AspNetCore` package and AOT-safe diagnostics DTOs | Accepted |
 | [0020](0020-worker-thread-stack-size-and-thread-affine-scopes.md) | Configurable worker `MaxStackSize` and worker-thread-affine `OnWorkerThreadStart` / `CreateWorkerThreadScope` | Accepted |
+| [0021](0021-hosted-pool-configuration.md) | Shared hosted STA pool configuration | Accepted |
 
 ## Scope
 

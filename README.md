@@ -2,6 +2,11 @@
 
 > A focused interop toolbox for dedicated-thread execution, native library isolation, and COM-friendly workloads.
 
+**New in 3.1:** Use `ExecutionPoolConfiguration.IsValid` in your options validation
+and `ConfigureStaPool` in the hosted pool callback. Pass your own worker limit and
+keep any custom stack size, startup hooks, or deadline application in your integration.
+See [ADR 0021](docs/adr/0021-hosted-pool-configuration.md).
+
 [![NuGet](https://img.shields.io/nuget/v/AdaskoTheBeAsT.Interop.Execution.svg?label=AdaskoTheBeAsT.Interop.Execution&logo=nuget)](https://www.nuget.org/packages/AdaskoTheBeAsT.Interop.Execution/)
 [![NuGet](https://img.shields.io/nuget/v/AdaskoTheBeAsT.Interop.Execution.DependencyInjection.svg?label=Execution.DependencyInjection&logo=nuget)](https://www.nuget.org/packages/AdaskoTheBeAsT.Interop.Execution.DependencyInjection/)
 [![NuGet](https://img.shields.io/nuget/v/AdaskoTheBeAsT.Interop.Execution.Hosting.svg?label=Execution.Hosting&logo=nuget)](https://www.nuget.org/packages/AdaskoTheBeAsT.Interop.Execution.Hosting/)

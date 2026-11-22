@@ -5,6 +5,10 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0]
+
+Adds a shared hosted STA pool configuration and validation helper without changing existing worker defaults.
+
 ## [3.0.0]
 
 Upgrades the solution to .NET 11 (`11.0.100`) and C# 14, updates the supported
